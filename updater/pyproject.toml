@@ -52,3 +52,26 @@ select = ["E", "F", "FA", "I", "RUF100", "T10", "TCH", "UP", "W"]
 [tool.ruff.lint.flake8-type-checking]
 exempt-modules = []
 strict = true
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"]
+
+[tool.pixi.dependencies]
+python = "3.12.*"
+conda = ">=26.1.1"
+hatchling = ">=1.27"
+python-build = ">=1.2"
+pytest = ">=8"
+rattler-build = "0.70.*"
+ruff = ">=0.12"
+
+[tool.pixi.pypi-dependencies]
+conda-runtime-updater = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+lint = { cmd = "ruff check .", description = "Check updater code style" }
+format-check = { cmd = "ruff format --check .", description = "Verify updater formatting" }
+test = { cmd = "pytest", description = "Run updater tests" }
+build-python = { cmd = "python -m build --no-isolation .", description = "Build updater Python distributions" }
+build-conda-package = { cmd = "rattler-build build --recipe recipes/conda-runtime-updater/recipe.yaml --channel conda-forge", cwd = "..", description = "Build the updater conda package" }

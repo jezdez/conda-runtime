@@ -35,13 +35,16 @@
 
 ## Local development
 
-- Use Python 3.12 with supported conda, pytest, Ruff, and build installed.
-- Install the updater from the repository root with
-  `python -m pip install -e './updater[test]'`.
-- Run updater tests with `python -m pytest updater/tests`.
-- Run lint and formatting checks with `python -m ruff check updater` and
-  `python -m ruff format --check updater`.
-- Build Python distributions with `python -m build updater`.
+- Use the Pixi workspace in `updater/pyproject.toml` for updater development.
+- Run updater tests with
+  `pixi run --manifest-path updater/pyproject.toml --locked test`.
+- Run lint and formatting checks with
+  `pixi run --manifest-path updater/pyproject.toml --locked lint` and
+  `pixi run --manifest-path updater/pyproject.toml --locked format-check`.
+- Build Python distributions with
+  `pixi run --manifest-path updater/pyproject.toml --locked build-python`.
+- Build the noarch conda package with
+  `pixi run --manifest-path updater/pyproject.toml --locked build-conda-package`.
 - When interacting with GitHub, use `gh` and follow repository-native issue and
   pull request templates.
 
@@ -116,6 +119,11 @@
 
 ## Runtime manifest and lockfile
 
+- After changing any `[tool.pixi.*]` dependencies, features, tasks, platforms,
+  channels, or workspace settings in `updater/pyproject.toml`, run
+  `pixi lock --manifest-path updater/pyproject.toml` and commit
+  `updater/pixi.lock` in the same change.
+- Never hand-edit `updater/pixi.lock`.
 - The production runtime uses `runtime/conda.toml`, `runtime/conda.lock`, and
   `runtime/runtime.condarc`.
 - Keep the production package set limited to Python, conda, conda-self, and

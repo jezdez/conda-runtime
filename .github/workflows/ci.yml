@@ -30,36 +30,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: mamba-org/setup-micromamba@d7c9bd84e824b79d2af72a2d4196c7f4300d3476 # v3.0.0
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
         with:
-          environment-name: updater-test
-          create-args: >-
-            python=3.12
-            conda>=26.1.1
-            pip
-            hatchling>=1.27
-            python-build>=1.2
-            pytest>=8
-            ruff>=0.12
-          init-shell: bash
-          cache-downloads: true
-          cache-environment: true
-
-      - name: Install updater
-        shell: bash -el {0}
-        run: python -m pip install -e ./updater --no-deps --no-build-isolation
+          pixi-version: v0.73.0
+          manifest-path: updater/pyproject.toml
+          cache: true
 
       - name: Lint updater
-        shell: bash -el {0}
-        run: python -m ruff check updater
+        run: pixi run --manifest-path updater/pyproject.toml --locked lint
+
+      - name: Check updater formatting
+        run: pixi run --manifest-path updater/pyproject.toml --locked format-check
 
       - name: Test updater
-        shell: bash -el {0}
-        run: python -m pytest updater/tests
+        run: pixi run --manifest-path updater/pyproject.toml --locked test
 
       - name: Build updater distribution
-        shell: bash -el {0}
-        run: python -m build updater
+        run: pixi run --manifest-path updater/pyproject.toml --locked build-python
 
   updater-package:
     name: Updater conda package
@@ -70,8 +57,18 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: prefix-dev/rattler-build-action@1ca5f45832f419a46d1326ccc5861d7e14d67c44 # v0.2.39
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
         with:
-          recipe-path: recipes/conda-runtime-updater/recipe.yaml
-          artifact-name: conda-runtime-updater
-          build-args: --channel conda-forge
+          pixi-version: v0.73.0
+          manifest-path: updater/pyproject.toml
+          cache: true
+
+      - name: Build updater conda package
+        run: pixi run --manifest-path updater/pyproject.toml --locked build-conda-package
+
+      - name: Upload updater conda package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conda-runtime-updater
+          path: output/noarch/conda-runtime-updater-*.conda
+          if-no-files-found: error

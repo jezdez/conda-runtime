@@ -15,8 +15,9 @@ Merge the release change, then create and push the matching tag:
 conda-runtime-updater-<version>
 ```
 
-The release workflow builds and tests the noarch package, then uploads it with
-this command:
+The release workflow uses the locked Pixi workspace in
+`updater/pyproject.toml` to build and upload the noarch package. The upload is
+equivalent to this command inside that environment:
 
 ```text
 rattler-build upload anaconda \
