@@ -10,7 +10,8 @@ from conda.base.constants import UpdateModifier
 from conda.exceptions import CondaError
 from conda.models.match_spec import MatchSpec
 
-from conda_runtime_updater import plugin
+from conda_runtime_updater import helper, plugin
+from conda_runtime_updater.metadata import RuntimeMetadata
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -26,12 +27,12 @@ def reset_session():
 
 
 @pytest.fixture
-def runtime(tmp_path: Path) -> plugin.RuntimeMetadata:
+def runtime(tmp_path: Path) -> RuntimeMetadata:
     executable = tmp_path / "conda"
     executable.write_bytes(b"runtime")
     lock_path = tmp_path / ".conda.update.lock"
     lock_path.write_bytes(b"\0")
-    return plugin.RuntimeMetadata(
+    return RuntimeMetadata(
         prefix=tmp_path,
         path=tmp_path / ".conda.json",
         executable=executable,
@@ -230,7 +231,7 @@ def test_declined_prompt_releases_lock_without_staging(monkeypatch, tmp_path, ru
 
 
 def test_external_update_reports_instruction_without_staging(monkeypatch, tmp_path, runtime):
-    external = plugin.RuntimeMetadata(
+    external = RuntimeMetadata(
         prefix=runtime.prefix,
         path=runtime.path,
         executable=runtime.executable,
@@ -323,15 +324,15 @@ def test_json_mode_defers_lock_release_failure(monkeypatch, capsys, tmp_path, ru
     ],
 )
 def test_helper_process_failures_are_conda_errors(monkeypatch, runtime, error, message):
-    monkeypatch.setattr(plugin, "context", SimpleNamespace(offline=False))
+    monkeypatch.setattr(helper, "context", SimpleNamespace(offline=False))
     monkeypatch.setattr(
-        plugin.subprocess,
+        helper.subprocess,
         "run",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(error),
     )
 
     with pytest.raises(CondaError, match=message):
-        plugin.invoke_helper(runtime, "check")
+        helper.invoke_helper(runtime, "check")
 
 
 def test_hook_registration_covers_root_solve_commands():
