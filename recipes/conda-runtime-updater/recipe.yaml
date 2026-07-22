@@ -28,6 +28,9 @@ tests:
   - python:
       imports:
         - conda_runtime_updater
+        - conda_runtime_updater.helper
+        - conda_runtime_updater.locking
+        - conda_runtime_updater.metadata
         - conda_runtime_updater.plugin
       pip_check: true
       python_version: ${{ python_min }}.*
