@@ -53,6 +53,7 @@ jobs:
       - name: Upload immutable package
         env:
           ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
+          ANACONDA_OWNER: ${{ secrets.ANACONDA_OWNER }}
         run: |
           mapfile -t packages < <(find output/noarch -maxdepth 1 -name 'conda-runtime-updater-*.conda' -print)
           if [[ ${#packages[@]} -ne 1 ]]
@@ -61,6 +62,6 @@ jobs:
             exit 1
           fi
           rattler-build upload anaconda \
-            --owner jezdez \
+            --owner "$ANACONDA_OWNER" \
             --channel main \
             "${packages[0]}"

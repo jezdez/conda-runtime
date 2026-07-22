@@ -20,14 +20,15 @@ this command:
 
 ```text
 rattler-build upload anaconda \
-  --owner jezdez \
+  --owner "$ANACONDA_OWNER" \
   --channel main \
   PACKAGE_FILE
 ```
 
-The `anaconda` GitHub environment must provide the `ANACONDA_API_KEY` secret.
-The workflow does not use `--force`. A published filename is immutable, so a
-bad release requires a new version and build number.
+The `anaconda` GitHub environment must provide the `ANACONDA_API_KEY` and
+`ANACONDA_OWNER` secrets. The workflow does not use `--force`. A published
+filename is immutable, so a bad release requires a new version and build
+number.
 
 For an on-premises Anaconda server, run the same build and pass its server URL
 to `rattler-build upload anaconda`. Other conda channel hosts can consume the
