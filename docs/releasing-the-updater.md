@@ -9,14 +9,19 @@ Update the version in both of these files:
 - `updater/pyproject.toml`
 - `recipes/conda-runtime-updater/recipe.yaml`
 
-Merge the release change, then create and push the matching tag:
+Merge the release change, then run the updater release workflow manually on
+that commit. The candidate builds the noarch package and checks the
+Anaconda.org credentials without uploading it.
+
+After the candidate passes, create and push the matching tag on the same
+commit:
 
 ```text
 conda-runtime-updater-<version>
 ```
 
-The release workflow uses the locked Pixi workspace in
-`updater/pyproject.toml` to build and upload the noarch package. The upload is
+The tag workflow repeats the build with the locked Pixi workspace in
+`updater/pyproject.toml` and uploads the noarch package. The upload is
 equivalent to this command inside that environment:
 
 ```text
