@@ -120,5 +120,18 @@ def test_publish_skips_exact_files_and_uploads_only_missing(
     )
 
     assert len(commands) == 1
-    assert commands[0][-1] == str(missing.path)
-    assert "--force" not in commands[0]
+    assert commands == [
+        [
+            "anaconda",
+            "upload",
+            "--user",
+            "jezdez",
+            "--label",
+            "main",
+            "--summary",
+            "Standalone conda runtime",
+            "--keep-basename",
+            "--no-progress",
+            str(missing.path),
+        ]
+    ]

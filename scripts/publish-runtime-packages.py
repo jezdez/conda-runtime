@@ -202,13 +202,16 @@ def publish(
             continue
         subprocess.run(
             [
-                "rattler-build",
-                "upload",
                 "anaconda",
-                "--owner",
+                "upload",
+                "--user",
                 owner,
-                "--channel",
+                "--label",
                 CHANNEL,
+                "--summary",
+                "Standalone conda runtime",
+                "--keep-basename",
+                "--no-progress",
                 str(package.path),
             ],
             check=True,
