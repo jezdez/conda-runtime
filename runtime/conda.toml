@@ -18,7 +18,7 @@ ship = { features = ["ship"], no-default-feature = true }
 
 [tool.conda-ship]
 runtime-name = "conda"
-runtime-version = "26.5.3"
+runtime-version = "26.5.3.post1"
 delegate-executable = "conda"
 artifact-layout = "embedded"
 source-environment = "ship"

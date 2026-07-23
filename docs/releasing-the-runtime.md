@@ -12,9 +12,10 @@ Set `runtime-version` in `runtime/conda.toml` to the bundled conda version.
 Use `X.Y.Z.postN` for a runtime-only rebuild of the same conda version. Every
 runtime version starts with update package build number `0`.
 
-Regenerate and commit `runtime/conda.lock` and
-`tests/e2e/gen1/conda.lock`. The release workflow does not solve or change
-either lock.
+If package inputs change, regenerate and commit `runtime/conda.lock` or
+`tests/e2e/gen1/conda.lock` as applicable. A runtime-only `.postN` rebuild with
+the same package inputs leaves both locks unchanged. The release workflow does
+not solve or change either lock.
 
 ## Rehearse the release
 
@@ -28,8 +29,7 @@ gh workflow run release-runtime.yml --ref main
 The manual run builds all five native executables and update packages, checks
 the complete distribution, and runs the two-layer update proof on Linux,
 macOS, and Windows. It does not create a GitHub release or upload to
-Anaconda.org. It checks the configured Anaconda.org token without changing the
-service.
+Anaconda.org. It does not access release credentials or publish attestations.
 
 The two-layer proof uses a temporary `file://` channel, so its executables are
 stamped for that channel. Conda-ship rejects an executable from a different
@@ -48,7 +48,7 @@ publish anything.
 Create an unprefixed tag that exactly matches `runtime-version`, such as
 `26.5.3` or `26.5.3.post1`.
 
-The workflow uses the conda-ship action and release assets from exactly 0.6.3.
+The workflow uses the conda-ship action and release assets from exactly 0.6.4.
 It builds these five directly managed variants:
 
 | Conda subdirectory | Runner | Runtime target |
@@ -60,10 +60,10 @@ It builds these five directly managed variants:
 | `win-64` | `windows-latest` | `x86_64-pc-windows-msvc` |
 
 Each job bootstraps its executable once, then packages those exact executable
-bytes with `cs package-update`. The package verifier extracts the sole payload
-from each native `.conda` package and compares its size and SHA-256 digest with
-the finalized executable. Executables and native update packages receive
-GitHub artifact attestations.
+bytes with `cs package-update`. The package verifier checks the native package
+identity, extracts the sole payload, and compares its size and SHA-256 digest
+with the finalized executable. The tag build attests executables and native
+update packages.
 
 The GitHub release assets use direct ownership. Their installers refuse to
 replace an existing executable because direct runtime updates are coordinated

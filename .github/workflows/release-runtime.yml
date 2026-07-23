@@ -43,6 +43,7 @@ jobs:
 
   anaconda-preflight:
     name: Check Anaconda.org release credentials
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: [validate-release]
     environment: anaconda
@@ -62,7 +63,7 @@ jobs:
   build-runtime:
     name: Build runtime (${{ matrix.subdir }})
     runs-on: ${{ matrix.os }}
-    needs: [validate-release, anaconda-preflight]
+    needs: [validate-release]
     permissions:
       contents: read
       id-token: write # mint the OIDC token used for artifact attestations
@@ -89,11 +90,11 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Build with conda-ship 0.6.3
+      - name: Build with conda-ship 0.6.4
         id: ship
-        uses: jezdez/conda-ship@1b80ee88a2d81ea0f4b7d77ac792e106da3cd26a # 0.6.3
+        uses: jezdez/conda-ship@ea711a91f22bd5cf006cbd9254609aa8d3fd0e72 # 0.6.4
         with:
-          conda-ship-version: "0.6.3"
+          conda-ship-version: "0.6.4"
           root: runtime
 
       - name: Stage executable
@@ -127,6 +128,7 @@ jobs:
         run: '"$BINARY_PATH" --version'
 
       - name: Attest executable
+        if: github.event_name == 'push'
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-path: ${{ steps.stage.outputs.final-binary }}
@@ -167,6 +169,7 @@ jobs:
           rm "$report_path"
 
       - name: Attest update package
+        if: github.event_name == 'push'
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-path: ${{ steps.stage.outputs.output-root }}/update-packages/${{ matrix.subdir }}/*.conda
@@ -210,6 +213,7 @@ jobs:
             --write-checksums
 
       - name: Attest checksum manifest
+        if: github.event_name == 'push'
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-path: staged/release-assets/SHA256SUMS
@@ -324,7 +328,7 @@ jobs:
   prove-runtime-update:
     name: Prove runtime update (${{ matrix.subdir }})
     runs-on: ${{ matrix.os }}
-    needs: [validate-release, anaconda-preflight]
+    needs: [validate-release]
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -359,11 +363,11 @@ jobs:
             --work "${RUNNER_TEMP}/conda-runtime-e2e" \
             --platform "$SUBDIR"
 
-      - name: Build generation 1 with conda-ship 0.6.3
+      - name: Build generation 1 with conda-ship 0.6.4
         id: ship
-        uses: jezdez/conda-ship@1b80ee88a2d81ea0f4b7d77ac792e106da3cd26a # 0.6.3
+        uses: jezdez/conda-ship@ea711a91f22bd5cf006cbd9254609aa8d3fd0e72 # 0.6.4
         with:
-          conda-ship-version: "0.6.3"
+          conda-ship-version: "0.6.4"
           root: ${{ runner.temp }}/conda-runtime-e2e/gen1
 
       - name: Prove the two-layer update
@@ -384,7 +388,12 @@ jobs:
     name: Publish GitHub release
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: [validate-release, verify-runtime, prove-installers, prove-runtime-update]
+    needs:
+      - validate-release
+      - anaconda-preflight
+      - verify-runtime
+      - prove-installers
+      - prove-runtime-update
     outputs:
       created: ${{ steps.publish.outputs.created }}
     permissions:

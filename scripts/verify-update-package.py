@@ -26,6 +26,14 @@ REPORT_KEYS = {
     "size",
 }
 
+NATIVE_IDENTITIES = {
+    "linux-64": {"platform": "linux", "arch": "x86_64"},
+    "linux-aarch64": {"platform": "linux", "arch": "aarch64"},
+    "osx-64": {"platform": "osx", "arch": "x86_64"},
+    "osx-arm64": {"platform": "osx", "arch": "arm64"},
+    "win-64": {"platform": "win", "arch": "x86_64"},
+}
+
 
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -33,6 +41,79 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def package_index(package: Path) -> dict[str, object]:
+    try:
+        archive = ZipFile(package)
+    except BadZipFile as error:
+        raise SystemExit(
+            f"update package is not a valid .conda archive: {package}"
+        ) from error
+
+    with archive:
+        info_archives = [
+            name
+            for name in archive.namelist()
+            if name.startswith("info-") and name.endswith(".tar.zst")
+        ]
+        if len(info_archives) != 1:
+            raise SystemExit(
+                "update package must contain exactly one info-*.tar.zst archive"
+            )
+        info_archive = info_archives[0]
+        if Path(info_archive).name != info_archive:
+            raise SystemExit("update package metadata archive has an invalid path")
+
+        tar = shutil.which("tar")
+        if tar is None:
+            raise SystemExit("tar is required to inspect the update package metadata")
+
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            archive_path = Path(temporary_dir) / info_archive
+            with (
+                archive.open(info_archive) as source,
+                archive_path.open("wb") as target,
+            ):
+                shutil.copyfileobj(source, target)
+
+            listing = subprocess.run(
+                [tar, "-tf", info_archive],
+                capture_output=True,
+                check=False,
+                cwd=temporary_dir,
+                encoding="utf-8",
+            )
+            if listing.returncode != 0:
+                detail = listing.stderr.strip() or "unknown tar error"
+                raise SystemExit(f"could not inspect update package metadata: {detail}")
+            index_files = [
+                entry
+                for entry in listing.stdout.splitlines()
+                if entry.removeprefix("./") == "info/index.json"
+            ]
+            if len(index_files) != 1:
+                raise SystemExit("update package must contain one info/index.json")
+
+            extracted = subprocess.run(
+                [tar, "-xOf", info_archive, index_files[0]],
+                capture_output=True,
+                check=False,
+                cwd=temporary_dir,
+            )
+            if extracted.returncode != 0:
+                detail = extracted.stderr.decode(errors="replace").strip()
+                raise SystemExit(
+                    "could not extract update package metadata: "
+                    f"{detail or 'unknown tar error'}"
+                )
+    try:
+        index = json.loads(extracted.stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SystemExit("update package has invalid info/index.json") from error
+    if not isinstance(index, dict):
+        raise SystemExit("update package info/index.json must be an object")
+    return index
 
 
 def packaged_payload(package: Path, platform: str) -> tuple[str, int]:
@@ -125,6 +206,29 @@ def main() -> None:
 
     binary_sha256 = sha256(args.binary)
     binary_size = args.binary.stat().st_size
+    try:
+        native_identity = NATIVE_IDENTITIES[args.platform]
+    except KeyError as error:
+        raise SystemExit(f"unsupported native platform: {args.platform}") from error
+
+    index = package_index(args.package)
+    expected_index = {
+        "name": "conda-runtime",
+        "version": args.version,
+        "build": "0",
+        "build_number": 0,
+        "depends": [],
+        "subdir": args.platform,
+        **native_identity,
+    }
+    differences = {
+        key: (index.get(key), value)
+        for key, value in expected_index.items()
+        if index.get(key) != value
+    }
+    if differences:
+        raise SystemExit(f"update package info/index.json differs: {differences!r}")
+
     payload_sha256, payload_size = packaged_payload(args.package, args.platform)
     if (payload_sha256, payload_size) != (binary_sha256, binary_size):
         raise SystemExit(

@@ -15,14 +15,18 @@ sys.modules[SPEC.name] = release_packages
 SPEC.loader.exec_module(release_packages)
 
 
-def runtime_package(tmp_path: Path, subdir: str = "linux-64"):
-    path = tmp_path / subdir / "conda-runtime-26.5.3-0.conda"
+def runtime_package(
+    tmp_path: Path,
+    subdir: str = "linux-64",
+    version: str = "26.5.3.post1",
+):
+    path = tmp_path / subdir / f"conda-runtime-{version}-0.conda"
     path.parent.mkdir(parents=True)
     path.write_bytes(b"runtime")
     return release_packages.RuntimePackage(
         path=path,
         subdir=subdir,
-        version="26.5.3",
+        version=version,
         sha256=release_packages.file_sha256(path),
         size=path.stat().st_size,
     )
@@ -43,6 +47,7 @@ def api_metadata(package):
                     "build": "0",
                     "build_number": 0,
                     "subdir": package.subdir,
+                    **release_packages.NATIVE_IDENTITIES[package.subdir],
                 },
             }
         ]
@@ -88,6 +93,78 @@ def test_remote_metadata_must_match_local_package(
     )
     with pytest.raises(release_packages.RemoteMismatch, match="sha256"):
         release_packages.api_has(package, "jezdez")
+
+    mismatched = api_metadata(package)
+    mismatched["files"][0]["attrs"]["target-triplet"] = "wrong"
+    monkeypatch.setattr(
+        release_packages,
+        "get_json",
+        lambda _url, **_kwargs: mismatched,
+    )
+    with pytest.raises(release_packages.RemoteMismatch, match="target-triplet"):
+        release_packages.api_has(package, "jezdez")
+
+
+@pytest.mark.parametrize(
+    ("subdir", "expected"),
+    [
+        (
+            "linux-64",
+            {
+                "platform": "linux",
+                "arch": "x86_64",
+                "machine": "x86_64",
+                "operatingsystem": "linux",
+                "target-triplet": "x86_64-any-linux",
+            },
+        ),
+        (
+            "linux-aarch64",
+            {
+                "platform": "linux",
+                "arch": "aarch64",
+                "machine": "aarch64",
+                "operatingsystem": "linux",
+                "target-triplet": "aarch64-any-linux",
+            },
+        ),
+        (
+            "osx-64",
+            {
+                "platform": "osx",
+                "arch": "x86_64",
+                "machine": "x86_64",
+                "operatingsystem": "darwin",
+                "target-triplet": "x86_64-any-darwin",
+            },
+        ),
+        (
+            "osx-arm64",
+            {
+                "platform": "osx",
+                "arch": "arm64",
+                "machine": "arm64",
+                "operatingsystem": "darwin",
+                "target-triplet": "arm64-any-darwin",
+            },
+        ),
+        (
+            "win-64",
+            {
+                "platform": "win",
+                "arch": "x86_64",
+                "machine": "x86_64",
+                "operatingsystem": "win32",
+                "target-triplet": "x86_64-any-win32",
+            },
+        ),
+    ],
+)
+def test_native_identity_matches_anaconda_client(
+    subdir: str,
+    expected: dict[str, str],
+):
+    assert release_packages.NATIVE_IDENTITIES[subdir] == expected
 
 
 def test_publish_skips_exact_files_and_uploads_only_missing(
