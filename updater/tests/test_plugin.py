@@ -35,6 +35,7 @@ def runtime(tmp_path: Path) -> RuntimeMetadata:
     return RuntimeMetadata(
         prefix=tmp_path,
         path=tmp_path / ".conda.json",
+        version="26.5.3",
         executable=executable,
         lock_path=lock_path,
         ownership="direct",
@@ -51,6 +52,8 @@ def context_for(tmp_path: Path, **overrides):
         "json": False,
         "quiet": False,
         "offline": False,
+        "ignore_pinned": False,
+        "pinned_packages": (),
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -64,6 +67,7 @@ def write_metadata(
     delegate: str = "conda",
     ownership: str = "direct",
     instruction: str | None = None,
+    version: str = "26.5.3",
 ) -> Path:
     path = prefix / f".{name}.json"
     update = {
@@ -84,7 +88,7 @@ def write_metadata(
                 "display_name": name,
                 "install_name": "runtime",
                 "metadata_file": path.name,
-                "version": "26.5.3",
+                "version": version,
                 "delegate_executable": delegate,
                 "channels": [],
                 "packages": [],
@@ -126,6 +130,7 @@ def test_discovers_one_valid_runtime_record(tmp_path):
 
     assert runtime is not None
     assert runtime.path == path
+    assert runtime.version == "26.5.3"
     assert runtime.executable == executable
     assert runtime.ownership == "direct"
 
@@ -148,19 +153,129 @@ def test_runtime_discovery_ignores_non_conda_delegate(tmp_path):
     assert plugin.discover_runtime(tmp_path) is None
 
 
-def test_dry_run_returns_before_discovery(monkeypatch, tmp_path):
-    monkeypatch.setattr(plugin, "context", context_for(tmp_path, dry_run=True))
+def test_runtime_discovery_rejects_invalid_version(tmp_path):
+    executable = tmp_path / "conda"
+    executable.write_bytes(b"runtime")
+    write_metadata(tmp_path, executable, version="26.5")
+
+    with pytest.raises(CondaError, match="runtime version is invalid"):
+        plugin.discover_runtime(tmp_path)
+
+
+def test_runtime_pin_uses_conda_context(monkeypatch):
+    monkeypatch.setattr(
+        plugin.context,
+        "pinned_packages",
+        ("python 3.12.*", "conda >=26"),
+    )
+
+    plugin.pin_runtime_conda("26.5.4.post1")
+
+    assert plugin.context.pinned_packages == ("python 3.12.*", "conda ==26.5.4")
+
+
+def test_dry_run_pins_current_runtime_without_helper_or_lock(monkeypatch, tmp_path, runtime):
+    conda_context = context_for(
+        tmp_path,
+        dry_run=True,
+        pinned_packages=("python 3.12.*", "conda >=26"),
+    )
+    monkeypatch.setattr(plugin, "context", conda_context)
+    monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: runtime)
     monkeypatch.setattr(
         plugin,
-        "discover_runtime",
-        lambda _prefix: pytest.fail("dry-run discovered runtime metadata"),
+        "invoke_helper",
+        lambda *_args, **_kwargs: pytest.fail("dry-run invoked the executable helper"),
+    )
+    monkeypatch.setattr(
+        plugin,
+        "acquire_lock",
+        lambda *_args, **_kwargs: pytest.fail("dry-run acquired the runtime lock"),
     )
 
     plugin.pre_solve(frozenset({MatchSpec("conda")}), frozenset())
 
+    assert conda_context.pinned_packages == ("python 3.12.*", "conda ==26.5.3")
+
+
+def test_no_pin_fails_before_helper_or_lock(monkeypatch, tmp_path, runtime):
+    monkeypatch.setattr(plugin, "context", context_for(tmp_path, ignore_pinned=True))
+    monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: runtime)
+    monkeypatch.setattr(
+        plugin,
+        "invoke_helper",
+        lambda *_args, **_kwargs: pytest.fail("--no-pin invoked the executable helper"),
+    )
+    monkeypatch.setattr(
+        plugin,
+        "acquire_lock",
+        lambda *_args, **_kwargs: pytest.fail("--no-pin acquired the runtime lock"),
+    )
+
+    with pytest.raises(CondaError, match="cannot be coordinated with --no-pin"):
+        plugin.pre_solve(frozenset({MatchSpec("conda")}), frozenset())
+
+
+def test_no_outer_update_pins_current_runtime_version(monkeypatch, tmp_path, runtime):
+    conda_context = context_for(
+        tmp_path,
+        pinned_packages=("python 3.12.*", "conda <99"),
+    )
+    monkeypatch.setattr(plugin, "context", conda_context)
+    monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: runtime)
+    monkeypatch.setattr(
+        plugin,
+        "invoke_helper",
+        lambda *_args, **_kwargs: {
+            "available": False,
+            "ownership": "direct",
+        },
+    )
+
+    plugin.pre_solve(frozenset({MatchSpec("conda")}), frozenset())
+
+    assert conda_context.pinned_packages == ("python 3.12.*", "conda ==26.5.3")
+    lock = plugin.acquire_lock(runtime.lock_path)
+    plugin.release_lock(lock)
+
+
+def test_invalid_candidate_version_fails_before_prompt_or_stage(monkeypatch, tmp_path, runtime):
+    monkeypatch.setattr(plugin, "context", context_for(tmp_path))
+    monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: runtime)
+    monkeypatch.setattr(
+        plugin,
+        "confirm_yn",
+        lambda *_args, **_kwargs: pytest.fail("invalid candidate prompted"),
+    )
+    actions = []
+
+    def invoke(_runtime, action, *, candidate=None):
+        actions.append((action, candidate))
+        return {
+            "available": True,
+            "ownership": "direct",
+            "instruction": None,
+            "version": "26.5",
+            "build_number": 0,
+            "sha256": "a" * 64,
+        }
+
+    monkeypatch.setattr(plugin, "invoke_helper", invoke)
+
+    with pytest.raises(CondaError, match="runtime version is invalid"):
+        plugin.pre_solve(frozenset({MatchSpec("conda")}), frozenset())
+
+    assert actions == [("check", None)]
+    lock = plugin.acquire_lock(runtime.lock_path)
+    plugin.release_lock(lock)
+
 
 def test_direct_update_holds_lock_through_apply(monkeypatch, tmp_path, runtime):
-    monkeypatch.setattr(plugin, "context", context_for(tmp_path))
+    conda_context = context_for(
+        tmp_path,
+        pinned_packages=("python 3.12.*", "conda >=26"),
+    )
+    monkeypatch.setattr(plugin, "context", conda_context)
     monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: runtime)
     prompted = []
     monkeypatch.setattr(plugin, "confirm_yn", lambda message, default: prompted.append(message))
@@ -173,7 +288,7 @@ def test_direct_update_holds_lock_through_apply(monkeypatch, tmp_path, runtime):
                 "available": True,
                 "ownership": "direct",
                 "instruction": None,
-                "version": "26.5.4",
+                "version": "26.5.4.post1",
                 "build_number": 0,
                 "sha256": "a" * 64,
             }
@@ -187,6 +302,7 @@ def test_direct_update_holds_lock_through_apply(monkeypatch, tmp_path, runtime):
 
     assert plugin._session is not None
     assert not plugin._session.lock.closed
+    assert conda_context.pinned_packages == ("python 3.12.*", "conda ==26.5.4")
     assert prompted
     assert actions == [("check", None), ("stage", "a" * 64)]
 
@@ -238,6 +354,7 @@ def test_external_update_reports_instruction_without_staging(monkeypatch, tmp_pa
     external = RuntimeMetadata(
         prefix=runtime.prefix,
         path=runtime.path,
+        version=runtime.version,
         executable=runtime.executable,
         lock_path=runtime.lock_path,
         ownership="external",

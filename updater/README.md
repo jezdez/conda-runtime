@@ -15,7 +15,12 @@ For a directly managed runtime, the plugin checks and stages the outer update,
 lets conda complete the inner transaction, then applies the staged executable.
 It holds the runtime update lock across both layers. An interactive command
 asks for approval. JSON mode and `--yes` use conda's existing noninteractive
-behavior. Dry runs do not check or stage an outer update.
+behavior. The hook pins the inner `conda` package to the conda version bundled
+by the current or staged outer runtime while preserving unrelated configured
+pins. A runtime-only `.postN` suffix does not change the inner conda version.
+Matching root updates reject `--no-pin` because it would bypass that
+coordination. Dry runs read the local runtime record and apply its current
+conda pin without checking, staging, or locking an outer update.
 
 For an externally managed runtime, an available outer update stops the inner
 transaction and reports the instruction stamped by the distributor. The

@@ -12,18 +12,17 @@ from conda.base.constants import UpdateModifier
 from conda.base.context import context
 from conda.common.path import paths_equal
 from conda.exceptions import CondaError, CondaSystemExit
+from conda.models.match_spec import MatchSpec
 from conda.plugins.types import CondaPostCommand, CondaPreSolve
 from conda.reporters import confirm_yn
 
 from .helper import invoke_helper, validate_check
 from .locking import acquire_lock, release_lock
-from .metadata import discover_runtime
+from .metadata import conda_version_from_runtime, discover_runtime
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from typing import BinaryIO
-
-    from conda.models.match_spec import MatchSpec
 
     from .metadata import RuntimeMetadata
 
@@ -46,6 +45,14 @@ def should_coordinate(specs_to_add: frozenset[MatchSpec]) -> bool:
     )
 
 
+def pin_runtime_conda(runtime_version: str) -> None:
+    """Pin the inner conda package to the outer runtime release."""
+
+    conda_version = conda_version_from_runtime(runtime_version)
+    pins = tuple(pin for pin in context.pinned_packages if MatchSpec(pin).name != "conda")
+    context.pinned_packages = (*pins, f"conda =={conda_version}")
+
+
 def pre_solve(
     specs_to_add: frozenset[MatchSpec],
     specs_to_remove: frozenset[MatchSpec],
@@ -55,11 +62,18 @@ def pre_solve(
     del specs_to_remove
     global _session
 
-    if _session is not None or context.dry_run or not should_coordinate(specs_to_add):
+    if _session is not None or not should_coordinate(specs_to_add):
         return
 
     runtime = discover_runtime(Path(context.root_prefix))
     if runtime is None:
+        return
+    if context.ignore_pinned:
+        raise CondaError(
+            "The standalone conda runtime update cannot be coordinated with --no-pin."
+        )
+    if context.dry_run:
+        pin_runtime_conda(runtime.version)
         return
 
     lock = acquire_lock(runtime.lock_path)
@@ -67,8 +81,11 @@ def pre_solve(
         result = invoke_helper(runtime, "check")
         check = validate_check(result, runtime)
         if not check["available"]:
+            pin_runtime_conda(runtime.version)
             return
 
+        candidate_version = check["version"]
+        conda_version_from_runtime(candidate_version)
         if runtime.ownership == "external":
             instruction = (
                 check["instruction"]
@@ -80,12 +97,11 @@ def pre_solve(
             )
             raise CondaError(instruction)
 
-        version = check["version"]
         if not context.json:
             try:
                 confirm_yn(
-                    f"Update the standalone conda runtime to {version} together with its managed "
-                    "conda installation?",
+                    f"Update the standalone conda runtime to {candidate_version} together with "
+                    "its managed conda installation?",
                     default="yes",
                 )
             except CondaSystemExit as error:
@@ -96,6 +112,7 @@ def pre_solve(
         if staged.get("staged") is not True:
             raise CondaError("The standalone conda executable update was not staged.")
 
+        pin_runtime_conda(candidate_version)
         _session = UpdateSession(runtime=runtime, lock=lock)
         lock = None
     finally:
