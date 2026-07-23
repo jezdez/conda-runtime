@@ -71,9 +71,10 @@ def packaged_payload(package: Path, platform: str) -> tuple[str, int]:
                 shutil.copyfileobj(source, target)
 
             listing = subprocess.run(
-                [tar, "-tf", archive_path],
+                [tar, "-tf", package_archive],
                 capture_output=True,
                 check=False,
+                cwd=temporary_dir,
                 encoding="utf-8",
             )
             if listing.returncode != 0:
@@ -93,10 +94,11 @@ def packaged_payload(package: Path, platform: str) -> tuple[str, int]:
             payload_path = Path(temporary_dir) / Path(expected_path).name
             with payload_path.open("wb") as payload:
                 extracted = subprocess.run(
-                    [tar, "-xOf", archive_path, files[0]],
+                    [tar, "-xOf", package_archive, files[0]],
                     stdout=payload,
                     stderr=subprocess.PIPE,
                     check=False,
+                    cwd=temporary_dir,
                 )
             if extracted.returncode != 0:
                 detail = extracted.stderr.decode(errors="replace").strip()
