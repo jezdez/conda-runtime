@@ -41,8 +41,6 @@
 - Run lint and formatting checks with
   `pixi run --manifest-path updater/pyproject.toml --locked lint` and
   `pixi run --manifest-path updater/pyproject.toml --locked format-check`.
-- Build Python distributions with
-  `pixi run --manifest-path updater/pyproject.toml --locked build-python`.
 - Build the noarch conda package with
   `pixi run --manifest-path updater/pyproject.toml --locked build-conda-package`.
 - When interacting with GitHub, use `gh` and follow repository-native issue and

@@ -6598,7 +6598,6 @@ packages:
   name: conda-runtime-updater
   requires_dist:
   - conda>=26.1.1
-  - build>=1.2 ; extra == 'test'
   - pytest>=8 ; extra == 'test'
   - ruff>=0.12 ; extra == 'test'
   requires_python: '>=3.10'

@@ -58,14 +58,8 @@ jobs:
           ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
           ANACONDA_OWNER: ${{ secrets.ANACONDA_OWNER }}
         run: |
-          mapfile -t packages < <(find output/noarch -maxdepth 1 -name 'conda-runtime-updater-*.conda' -print)
-          if [[ ${#packages[@]} -ne 1 ]]
-          then
-            echo "expected exactly one updater package" >&2
-            exit 1
-          fi
           pixi run --manifest-path updater/pyproject.toml --locked \
             rattler-build upload anaconda \
             --owner "$ANACONDA_OWNER" \
             --channel main \
-            "${packages[0]}"
+            output/noarch/conda-runtime-updater-*.conda

@@ -24,7 +24,6 @@ dependencies = ["conda>=26.1.1"]
 
 [project.optional-dependencies]
 test = [
-  "build>=1.2",
   "pytest>=8",
   "ruff>=0.12",
 ]
@@ -61,7 +60,6 @@ platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"]
 python = "3.12.*"
 conda = ">=26.1.1"
 hatchling = ">=1.27"
-python-build = ">=1.2"
 pytest = ">=8"
 rattler-build = "0.70.*"
 ruff = ">=0.12"
@@ -73,5 +71,4 @@ conda-runtime-updater = { path = ".", editable = true }
 lint = { cmd = "ruff check .", description = "Check updater code style" }
 format-check = { cmd = "ruff format --check .", description = "Verify updater formatting" }
 test = { cmd = "pytest", description = "Run updater tests" }
-build-python = { cmd = "python -m build --no-isolation .", description = "Build updater Python distributions" }
 build-conda-package = { cmd = "rattler-build build --recipe recipes/conda-runtime-updater/recipe.yaml --channel conda-forge", cwd = "..", description = "Build the updater conda package" }

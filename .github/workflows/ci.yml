@@ -37,16 +37,15 @@ jobs:
           cache: true
 
       - name: Lint updater
+        if: runner.os == 'Linux'
         run: pixi run --manifest-path updater/pyproject.toml --locked lint
 
       - name: Check updater formatting
+        if: runner.os == 'Linux'
         run: pixi run --manifest-path updater/pyproject.toml --locked format-check
 
       - name: Test updater
         run: pixi run --manifest-path updater/pyproject.toml --locked test
-
-      - name: Build updater distribution
-        run: pixi run --manifest-path updater/pyproject.toml --locked build-python
 
   updater-package:
     name: Updater conda package
@@ -65,10 +64,3 @@ jobs:
 
       - name: Build updater conda package
         run: pixi run --manifest-path updater/pyproject.toml --locked build-conda-package
-
-      - name: Upload updater conda package
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: conda-runtime-updater
-          path: output/noarch/conda-runtime-updater-*.conda
-          if-no-files-found: error
