@@ -1,0 +1,35 @@
+[workspace]
+name = "conda-runtime-generation-1"
+channels = [
+  "https://conda.anaconda.org/jezdez",
+  "https://conda.anaconda.org/conda-forge",
+]
+platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"]
+channel-priority = "strict"
+
+[feature.ship.dependencies]
+python = "3.12.*"
+conda = "==26.5.2"
+conda-self = "==0.2.1"
+conda-runtime-updater = "==0.1.0"
+
+[environments]
+ship = { features = ["ship"], no-default-feature = true }
+
+[tool.conda-ship]
+runtime-name = "conda"
+runtime-version = "26.5.2"
+delegate-executable = "conda"
+artifact-layout = "embedded"
+source-environment = "ship"
+docs-url = "https://github.com/jezdez/conda-runtime"
+install-scheme = "user-data"
+install-name = "runtime"
+condarc-file = "runtime.condarc"
+freeze-base = true
+
+[tool.conda-ship.update]
+channel = "https://conda.anaconda.org/jezdez"
+package = "conda-runtime"
+build-number = 0
+ownership = "direct"

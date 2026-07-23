@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "[0-9]*.[0-9]*.[0-9]*"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,24 +17,52 @@ jobs:
   validate-release:
     name: Validate runtime release
     runs-on: ubuntu-latest
+    outputs:
+      release-version: ${{ steps.release.outputs.version }}
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Validate release inputs
+        id: release
         env:
+          EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          python3 scripts/validate-runtime-tag.py "$RELEASE_TAG"
-          test -f runtime/conda.lock
+          runtime_version="$(
+            python3 -c \
+              'import tomllib; print(tomllib.load(open("runtime/conda.toml", "rb"))["tool"]["conda-ship"]["runtime-version"])'
+          )"
+          if [ "$EVENT_NAME" = "push" ]; then
+            python3 scripts/validate-runtime-tag.py "$RELEASE_TAG"
+          fi
+          echo "version=${runtime_version}" >> "$GITHUB_OUTPUT"
+
+  anaconda-preflight:
+    name: Check Anaconda.org release credentials
+    runs-on: ubuntu-latest
+    needs: [validate-release]
+    environment: anaconda
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Check release credentials
+        env:
+          ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
+          ANACONDA_OWNER: ${{ secrets.ANACONDA_OWNER }}
+        run: python scripts/check-anaconda-token.py
 
   build-runtime:
     name: Build runtime (${{ matrix.subdir }})
     runs-on: ${{ matrix.os }}
-    needs: [validate-release]
+    needs: [validate-release, anaconda-preflight]
     permissions:
       contents: read
       id-token: write # mint the OIDC token used for artifact attestations
@@ -57,7 +86,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - name: Build with conda-ship 0.6.2
@@ -93,6 +122,7 @@ jobs:
         shell: bash
         env:
           BINARY_PATH: ${{ steps.stage.outputs.final-binary }}
+          CONDA_OFFLINE: "1"
           CONDA_SHIP_PREFIX: ${{ runner.temp }}/conda-runtime-smoke-prefix
         run: '"$BINARY_PATH" --version'
 
@@ -108,7 +138,7 @@ jobs:
           CS_PATH: ${{ steps.ship.outputs.cs-path }}
           INFO_PATH: ${{ steps.ship.outputs.info-path }}
           OUTPUT_ROOT: ${{ steps.stage.outputs.output-root }}
-          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release-version }}
           RUNNER_OS_NAME: ${{ runner.os }}
           SUBDIR: ${{ matrix.subdir }}
         run: |
@@ -148,12 +178,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  github-release:
-    name: Publish GitHub release
+  verify-runtime:
+    name: Verify complete runtime distribution
     runs-on: ubuntu-latest
-    needs: [build-runtime]
+    needs: [validate-release, build-runtime]
     permissions:
-      contents: write # create the GitHub release and upload its files
+      contents: read
       id-token: write # mint the OIDC token used for checksum attestation
       attestations: write # publish the checksum attestation
       artifact-metadata: write # register attested checksum metadata
@@ -161,7 +191,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -172,7 +202,7 @@ jobs:
 
       - name: Validate and checksum release files
         env:
-          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release-version }}
         run: |
           python3 scripts/verify-runtime-artifacts.py \
             staged \
@@ -184,95 +214,139 @@ jobs:
         with:
           subject-path: staged/release-assets/SHA256SUMS
 
-      - name: Stage and verify executable assets
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: validated-runtime
+          path: staged
+          if-no-files-found: error
+          retention-days: 7
+
+  prove-runtime-update:
+    name: Prove runtime update (${{ matrix.subdir }})
+    runs-on: ${{ matrix.os }}
+    needs: [validate-release, anaconda-preflight]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - subdir: linux-64
+            os: ubuntu-latest
+          - subdir: osx-arm64
+            os: macos-15
+          - subdir: win-64
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
+        with:
+          pixi-version: v0.73.0
+          manifest-path: updater/pyproject.toml
+          cache: true
+
+      - name: Prepare exact local channel
+        shell: bash
         env:
+          SUBDIR: ${{ matrix.subdir }}
+        run: |
+          pixi run --manifest-path updater/pyproject.toml --locked \
+            python scripts/prove-runtime-update.py prepare \
+            --work "${RUNNER_TEMP}/conda-runtime-e2e" \
+            --platform "$SUBDIR"
+
+      - name: Build generation 1 with conda-ship 0.6.2
+        id: ship
+        uses: jezdez/conda-ship@992021e2bb69e573c1475c3bbf5d3d5892e6dfe8 # 0.6.2
+        with:
+          conda-ship-version: "0.6.2"
+          root: ${{ runner.temp }}/conda-runtime-e2e/gen1
+
+      - name: Prove the two-layer update
+        shell: bash
+        env:
+          CS_PATH: ${{ steps.ship.outputs.cs-path }}
+          GEN1_BINARY: ${{ steps.ship.outputs.binary-path }}
+          SUBDIR: ${{ matrix.subdir }}
+        run: |
+          pixi run --manifest-path updater/pyproject.toml --locked \
+            python scripts/prove-runtime-update.py full \
+            --work "${RUNNER_TEMP}/conda-runtime-e2e" \
+            --platform "$SUBDIR" \
+            --cs-path "$CS_PATH" \
+            --gen1-binary "$GEN1_BINARY"
+
+  github-release:
+    name: Publish GitHub release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [validate-release, verify-runtime, prove-runtime-update]
+    permissions:
+      contents: write # create the GitHub release and upload its files
+
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: validated-runtime
+          path: staged
+
+      - name: Publish verified release assets
+        env:
+          GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-
-          gh release create "$RELEASE_TAG" \
-            --draft \
-            --verify-tag \
-            --title "$RELEASE_TAG" \
-            --notes "Standalone conda ${RELEASE_TAG}"
 
           cleanup_draft() {
             gh release delete "$RELEASE_TAG" --yes >/dev/null 2>&1 || true
           }
           trap cleanup_draft ERR
 
-          gh release upload "$RELEASE_TAG" staged/release-assets/*
-
-          draft_dir="${RUNNER_TEMP}/runtime-release-draft"
-          mkdir -p "$draft_dir"
-          gh release download "$RELEASE_TAG" --dir "$draft_dir"
-
-          mapfile -t local_assets < <(
-            find staged/release-assets -maxdepth 1 -type f -exec basename {} \; | sort
-          )
-          mapfile -t draft_assets < <(
-            find "$draft_dir" -maxdepth 1 -type f -exec basename {} \; | sort
-          )
-          diff -u \
-            <(printf '%s\n' "${local_assets[@]}") \
-            <(printf '%s\n' "${draft_assets[@]}")
-          for asset in "${local_assets[@]}"; do
-            cmp "staged/release-assets/${asset}" "${draft_dir}/${asset}"
-          done
-          (
-            cd "$draft_dir"
-            sha256sum --check SHA256SUMS
-          )
-
-          draft_json="$(
-            gh release view "$RELEASE_TAG" \
-              --json isDraft,isImmutable,isPrerelease,name,tagName
-          )"
-          RELEASE_JSON="$draft_json" python3 - <<'PY'
-          import json
-          import os
-
-          release = json.loads(os.environ["RELEASE_JSON"])
-          tag = os.environ["RELEASE_TAG"]
-          if release != {
-              "isDraft": True,
-              "isImmutable": False,
-              "isPrerelease": False,
-              "name": tag,
-              "tagName": tag,
-          }:
-              raise SystemExit(f"unexpected draft release metadata: {release}")
-          PY
-
-          gh release edit "$RELEASE_TAG" --draft=false
-
-          release_json="$(
-            gh release view "$RELEASE_TAG" \
-              --json isDraft,isImmutable,isPrerelease,name,tagName
-          )"
-          RELEASE_JSON="$release_json" python3 - <<'PY'
-          import json
-          import os
-
-          release = json.loads(os.environ["RELEASE_JSON"])
-          tag = os.environ["RELEASE_TAG"]
-          if release != {
-              "isDraft": False,
-              "isImmutable": True,
-              "isPrerelease": False,
-              "name": tag,
-              "tagName": tag,
-          }:
-              raise SystemExit(f"unexpected published release metadata: {release}")
-          PY
-
+          gh release create "$RELEASE_TAG" \
+            staged/release-assets/* \
+            --verify-tag \
+            --title "$RELEASE_TAG" \
+            --notes "Standalone conda ${RELEASE_TAG}"
           trap - ERR
+
+  verify-github-release:
+    name: Verify immutable GitHub release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    needs: [github-release]
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: validated-runtime
+          path: staged
+
+      - name: Verify published release and assets
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          gh release verify "$RELEASE_TAG"
+
+          for asset in staged/release-assets/*; do
+            gh release verify-asset "$RELEASE_TAG" "$asset"
+          done
 
   anaconda-upload:
     name: Upload native update packages
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: [github-release]
+    needs: [verify-github-release]
     environment: anaconda
     permissions:
       contents: read
@@ -280,14 +354,13 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.sha }}
           persist-credentials: false
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: runtime-build-*
+          name: validated-runtime
           path: staged
-          merge-multiple: true
 
       - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
         with:
@@ -301,17 +374,10 @@ jobs:
         env:
           ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
           ANACONDA_OWNER: ${{ secrets.ANACONDA_OWNER }}
-          RELEASE_VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
 
-          packages=(
-            "staged/update-packages/linux-64/conda-runtime-${RELEASE_VERSION}-0.conda"
-            "staged/update-packages/linux-aarch64/conda-runtime-${RELEASE_VERSION}-0.conda"
-            "staged/update-packages/osx-64/conda-runtime-${RELEASE_VERSION}-0.conda"
-            "staged/update-packages/osx-arm64/conda-runtime-${RELEASE_VERSION}-0.conda"
-            "staged/update-packages/win-64/conda-runtime-${RELEASE_VERSION}-0.conda"
-          )
+          packages=(staged/update-packages/*/*.conda)
           pixi run \
             --manifest-path updater/pyproject.toml \
             --locked \

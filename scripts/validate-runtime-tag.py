@@ -19,7 +19,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if VERSION_PATTERN.fullmatch(args.tag) is None:
-        raise SystemExit("runtime tags must use X.Y.Z or X.Y.Z.postN, such as 26.5.3.post1")
+        raise SystemExit(
+            "runtime tags must use X.Y.Z or X.Y.Z.postN, such as 26.5.3.post1"
+        )
 
     manifest = tomllib.loads(args.manifest.read_text())
     ship = manifest["tool"]["conda-ship"]

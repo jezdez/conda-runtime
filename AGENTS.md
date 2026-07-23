@@ -87,8 +87,8 @@
 
 - `--json` is an output format, not a behavior switch. The updater must not
   print human-readable status to stdout when conda is producing JSON.
-- Quiet mode must stay quiet. Route recovery diagnostics to stderr only when
-  conda is not quiet.
+- Preserve conda's `--quiet` behavior. Do not add updater status or prompt
+  text. Route recovery diagnostics to stderr only when conda is not quiet.
 - Dry-run operations must not check, download, stage, lock, or replace the
   outer executable.
 - Hold the runtime update lock from staging through completion of the inner
@@ -124,6 +124,8 @@
 - Never hand-edit `updater/pixi.lock`.
 - The production runtime uses `runtime/conda.toml`, `runtime/conda.lock`, and
   `runtime/runtime.condarc`.
+- `tests/e2e/gen1/` keeps the committed conda 26.5.2 generation used to prove
+  a real inner and outer update to the production generation.
 - Keep the production package set limited to Python, conda, conda-self, and
   conda-runtime-updater unless a reviewed runtime requirement adds another
   package.
@@ -134,6 +136,8 @@
 - After changing dependencies, features, channels, platforms, or environments
   in `runtime/conda.toml`, run `conda workspace lock` from `runtime/` and commit
   the resulting `runtime/conda.lock` in the same change.
+- Apply the same lockfile rule to `tests/e2e/gen1/conda.toml` and its adjacent
+  `conda.lock`.
 - Never hand-edit `runtime/conda.lock`.
 - Build production artifacts with the exact released conda-ship version pinned
   by the runtime workflow.
