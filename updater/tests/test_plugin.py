@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from conda.base.constants import UpdateModifier
-from conda.exceptions import CondaError
+from conda.exceptions import CondaError, CondaSystemExit
 from conda.models.match_spec import MatchSpec
 
 from conda_runtime_updater import helper, plugin
@@ -198,7 +198,7 @@ def test_direct_update_holds_lock_through_apply(monkeypatch, tmp_path, runtime):
     assert actions[-1] == ("apply", None)
 
 
-def test_declined_prompt_releases_lock_without_staging(monkeypatch, tmp_path, runtime):
+def test_declined_prompt_releases_lock_without_retrying(monkeypatch, tmp_path, runtime):
     monkeypatch.setattr(plugin, "context", context_for(tmp_path))
     monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: runtime)
     actions = []
@@ -215,17 +215,21 @@ def test_declined_prompt_releases_lock_without_staging(monkeypatch, tmp_path, ru
         }
 
     monkeypatch.setattr(plugin, "invoke_helper", invoke)
-    monkeypatch.setattr(
-        plugin,
-        "confirm_yn",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(CondaError("declined")),
-    )
+    prompts = []
 
-    with pytest.raises(CondaError, match="declined"):
+    def decline(*_args, **_kwargs):
+        prompts.append(True)
+        raise CondaSystemExit("Exiting.")
+
+    monkeypatch.setattr(plugin, "confirm_yn", decline)
+
+    with pytest.raises(CondaSystemExit, match="Exiting") as error:
         plugin.pre_solve(frozenset({MatchSpec("conda")}), frozenset())
 
     assert plugin._session is None
     assert actions == ["check"]
+    assert prompts == [True]
+    assert error.value.allow_retry is False
     lock = plugin.acquire_lock(runtime.lock_path)
     plugin.release_lock(lock)
 

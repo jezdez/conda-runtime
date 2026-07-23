@@ -11,7 +11,7 @@ from conda import plugins
 from conda.base.constants import UpdateModifier
 from conda.base.context import context
 from conda.common.path import paths_equal
-from conda.exceptions import CondaError
+from conda.exceptions import CondaError, CondaSystemExit
 from conda.plugins.types import CondaPostCommand, CondaPreSolve
 from conda.reporters import confirm_yn
 
@@ -82,11 +82,15 @@ def pre_solve(
 
         version = check["version"]
         if not context.json:
-            confirm_yn(
-                f"Update the standalone conda runtime to {version} together with its managed "
-                "conda installation?",
-                default="yes",
-            )
+            try:
+                confirm_yn(
+                    f"Update the standalone conda runtime to {version} together with its managed "
+                    "conda installation?",
+                    default="yes",
+                )
+            except CondaSystemExit as error:
+                error.allow_retry = False
+                raise
 
         staged = invoke_helper(runtime, "stage", candidate=check["sha256"])
         if staged.get("staged") is not True:
