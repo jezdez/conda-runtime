@@ -707,6 +707,19 @@ def poll_sha256(path: Path, expected: str, timeout: int = 60) -> None:
     )
 
 
+def poll_pending_phase(prefix: Path, expected: str, timeout: int = 60) -> None:
+    deadline = time.monotonic() + timeout
+    last = None
+    while time.monotonic() < deadline:
+        last = pending_phase(prefix)
+        if last == expected:
+            return
+        time.sleep(0.1)
+    raise RuntimeError(
+        f"timed out waiting for runtime update phase {expected!r}, last was {last!r}"
+    )
+
+
 def replace_executable(source: Path, destination: Path) -> None:
     temporary = destination.with_name(f".{destination.name}.external")
     temporary.unlink(missing_ok=True)
@@ -808,7 +821,12 @@ def prove_direct_update(
     update_result = json.loads(update.stdout)
     if not isinstance(update_result, dict):
         raise RuntimeError("successful update did not produce one JSON object")
-    poll_sha256(scenario.stable, expected_gen2_sha256)
+    if os.name == "nt":
+        poll_pending_phase(scenario.prefix, "cleanup")
+        if sha256(scenario.stable) != expected_gen2_sha256:
+            raise RuntimeError("Windows update worker installed the wrong executable")
+    else:
+        poll_sha256(scenario.stable, expected_gen2_sha256)
     verify_identity(scenario, gen2.conda)
     verify_outer_identity(scenario, gen2.runtime, "direct")
 
