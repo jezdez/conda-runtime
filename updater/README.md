@@ -1,0 +1,29 @@
+# conda-runtime-updater
+
+`conda-runtime-updater` is the transaction coordinator installed inside the
+managed prefix of the standalone conda runtime.
+
+It has no user-facing subcommand. For root-prefix conda updates, it coordinates
+the stamped outer executable with conda's existing pre-solve and post-command
+hooks. It depends on conda and does not depend on conda-ship.
+
+The pre-solve hook runs only when the target prefix is conda's root prefix and
+the requested specs include `conda`, or when the operation is a root `--all`
+update. Environment updates do not affect the outer executable.
+
+For a directly managed runtime, the plugin checks and stages the outer update,
+lets conda complete the inner transaction, then applies the staged executable.
+It holds the runtime update lock across both layers. An interactive command
+asks for approval. JSON mode and `--yes` use conda's existing noninteractive
+behavior. Dry runs do not check or stage an outer update.
+
+For an externally managed runtime, an available outer update stops the inner
+transaction and reports the instruction stamped by the distributor. The
+package manager can replace the executable before the conda update is retried.
+
+The plugin discovers update state only through the runtime's
+`.<runtime>.json` record. It invokes the stamped executable's version-one local
+helper actions and does not add a daemon, service, receipt, or updater command.
+If the inner transaction fails, the old executable remains usable. The next
+runtime invocation and update attempt recover or discard the interrupted
+state.

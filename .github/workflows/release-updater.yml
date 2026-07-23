@@ -1,0 +1,65 @@
+name: Release conda-runtime-updater
+
+on:
+  push:
+    tags:
+      - conda-runtime-updater-*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-updater-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish updater package
+    runs-on: ubuntu-latest
+    environment: anaconda
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify tag version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          version = tomllib.loads(Path("updater/pyproject.toml").read_text())["project"]["version"]
+          recipe = Path("recipes/conda-runtime-updater/recipe.yaml").read_text()
+          recipe_versions = re.findall(r'^  version: "([^"]+)"$', recipe, flags=re.MULTILINE)
+          if recipe_versions != [version]:
+              raise SystemExit("updater recipe version does not match pyproject.toml")
+          expected = f"conda-runtime-updater-{version}"
+          if tag != expected:
+              raise SystemExit(f"expected tag {expected}, received {tag}")
+          PY
+
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
+        with:
+          pixi-version: v0.73.0
+          manifest-path: updater/pyproject.toml
+          cache: true
+
+      - name: Build updater conda package
+        run: pixi run --manifest-path updater/pyproject.toml --locked build-conda-package
+
+      - name: Upload immutable package
+        env:
+          ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
+          ANACONDA_OWNER: ${{ secrets.ANACONDA_OWNER }}
+        run: |
+          pixi run --manifest-path updater/pyproject.toml --locked \
+            rattler-build upload anaconda \
+            --owner "$ANACONDA_OWNER" \
+            --channel main \
+            output/noarch/conda-runtime-updater-*.conda

@@ -3,6 +3,9 @@
 /.pytest_cache/
 /.ruff_cache/
 /.venv/
+/output/
+/updater/.pixi/
+/updater/dist/
 __pycache__/
 *.egg-info/
 *.pyc
