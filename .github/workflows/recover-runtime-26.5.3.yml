@@ -1,0 +1,85 @@
+name: Recover conda-runtime 26.5.3 upload
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read # download the validated artifact from the tagged release run
+  attestations: read # verify update package provenance before upload
+  contents: read
+
+concurrency:
+  group: recover-runtime-26.5.3-upload
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    name: Upload native update packages
+    runs-on: ubuntu-latest
+    environment: anaconda
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: 070f635fef55c0892512dc532d4e9b6ada243e9a
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: validated-runtime
+          path: staged
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: "30022462243"
+
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
+        with:
+          pixi-version: v0.73.0
+          manifest-path: updater/pyproject.toml
+          run-install: false
+          cache: false
+
+      - name: Verify tagged release artifacts
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: "26.5.3"
+          SOURCE_SHA: 070f635fef55c0892512dc532d4e9b6ada243e9a
+        run: |
+          set -euo pipefail
+
+          release_state="$(
+            gh release view "$RELEASE_TAG" \
+              --json isDraft,isImmutable,tagName \
+              --jq '[.isDraft, .isImmutable, .tagName] | @tsv'
+          )"
+          expected_release="$(printf 'false\ttrue\t%s' "$RELEASE_TAG")"
+          if [ "$release_state" != "$expected_release" ]; then
+            echo "GitHub release is not the expected immutable release." >&2
+            exit 1
+          fi
+
+          gh release verify "$RELEASE_TAG"
+
+          for package in staged/update-packages/*/*.conda; do
+            gh attestation verify "$package" \
+              --repo "$GH_REPO" \
+              --signer-workflow \
+              "${GH_REPO}/.github/workflows/release-runtime.yml" \
+              --source-digest "$SOURCE_SHA" \
+              --source-ref "refs/tags/${RELEASE_TAG}" \
+              --deny-self-hosted-runners >/dev/null
+          done
+
+      - name: Upload immutable update packages
+        env:
+          ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
+          ANACONDA_OWNER: ${{ secrets.ANACONDA_OWNER }}
+        run: |
+          pixi run \
+            --manifest-path updater/pyproject.toml \
+            --locked \
+            python scripts/publish-runtime-packages.py \
+            staged/update-packages \
+            26.5.3 \
+            --owner "$ANACONDA_OWNER"
