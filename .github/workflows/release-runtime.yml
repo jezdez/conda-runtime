@@ -285,6 +285,8 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: [validate-release, verify-runtime, prove-runtime-update]
+    outputs:
+      created: ${{ steps.publish.outputs.created }}
     permissions:
       contents: write # create the GitHub release and upload its files
 
@@ -295,6 +297,7 @@ jobs:
           path: staged
 
       - name: Publish verified release assets
+        id: publish
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
@@ -302,17 +305,70 @@ jobs:
         run: |
           set -euo pipefail
 
-          cleanup_draft() {
-            gh release delete "$RELEASE_TAG" --yes >/dev/null 2>&1 || true
+          release_state() {
+            gh release view "$RELEASE_TAG" \
+              --json isDraft \
+              --jq '.isDraft' \
+              2>/dev/null || true
           }
-          trap cleanup_draft ERR
 
+          verify_exact_release() {
+            expected_assets="$(
+              for asset in staged/release-assets/*; do
+                basename "$asset"
+              done | LC_ALL=C sort
+            )"
+            published_assets="$(
+              gh release view "$RELEASE_TAG" \
+                --json assets \
+                --jq '.assets[].name' |
+                LC_ALL=C sort
+            )"
+            if [ "$published_assets" != "$expected_assets" ]; then
+              echo "Published release assets do not match the validated files." >&2
+              exit 1
+            fi
+
+            gh release verify "$RELEASE_TAG"
+            for asset in staged/release-assets/*; do
+              gh release verify-asset "$RELEASE_TAG" "$asset"
+            done
+          }
+
+          cleanup_draft() {
+            is_draft="$(release_state 2>/dev/null || true)"
+            if [ "$is_draft" = "true" ]; then
+              gh release delete "$RELEASE_TAG" --yes >/dev/null 2>&1 || true
+            fi
+          }
+
+          is_draft="$(release_state)"
+          if [ -n "$is_draft" ]; then
+            if [ "$is_draft" = "true" ]; then
+              gh release delete "$RELEASE_TAG" --yes
+            elif [ "$(
+              gh release view "$RELEASE_TAG" \
+                --json isImmutable \
+                --jq '.isImmutable'
+            )" = "true" ]; then
+              verify_exact_release
+              echo "created=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            else
+              echo "Refusing to replace a published mutable release." >&2
+              exit 1
+            fi
+          fi
+
+          trap cleanup_draft ERR
           gh release create "$RELEASE_TAG" \
             staged/release-assets/* \
             --verify-tag \
+            --latest \
             --title "$RELEASE_TAG" \
             --notes "Standalone conda ${RELEASE_TAG}"
           trap - ERR
+          echo "created=true" >> "$GITHUB_OUTPUT"
 
   verify-github-release:
     name: Verify immutable GitHub release
@@ -332,9 +388,32 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          RELEASE_CREATED: ${{ needs.github-release.outputs.created }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+
+          release_state="$(
+            gh release view "$RELEASE_TAG" \
+              --json isDraft,isImmutable \
+              --jq '[.isDraft, .isImmutable] | @tsv'
+          )"
+          IFS=$'\t' read -r is_draft is_immutable <<< "$release_state"
+          if [ "$is_draft" != "false" ] || [ "$is_immutable" != "true" ]; then
+            echo "Release must be published and immutable." >&2
+            exit 1
+          fi
+          if [ "$RELEASE_CREATED" != "true" ] && [ "$RELEASE_CREATED" != "false" ]; then
+            echo "Release publication did not report whether it created the release." >&2
+            exit 1
+          fi
+          if [ "$RELEASE_CREATED" = "true" ]; then
+            latest_tag="$(gh api "repos/${GH_REPO}/releases/latest" --jq '.tag_name')"
+            if [ "$latest_tag" != "$RELEASE_TAG" ]; then
+              echo "New release was not marked latest." >&2
+              exit 1
+            fi
+          fi
 
           gh release verify "$RELEASE_TAG"
 
@@ -346,7 +425,7 @@ jobs:
     name: Upload native update packages
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    needs: [verify-github-release]
+    needs: [validate-release, verify-github-release]
     environment: anaconda
     permissions:
       contents: read
@@ -374,14 +453,14 @@ jobs:
         env:
           ANACONDA_API_KEY: ${{ secrets.ANACONDA_API_KEY }}
           ANACONDA_OWNER: ${{ secrets.ANACONDA_OWNER }}
+          RELEASE_VERSION: ${{ needs.validate-release.outputs.release-version }}
         run: |
           set -euo pipefail
 
-          packages=(staged/update-packages/*/*.conda)
           pixi run \
             --manifest-path updater/pyproject.toml \
             --locked \
-            rattler-build upload anaconda \
-            --owner "$ANACONDA_OWNER" \
-            --channel main \
-            "${packages[@]}"
+            python scripts/publish-runtime-packages.py \
+            staged/update-packages \
+            "$RELEASE_VERSION" \
+            --owner "$ANACONDA_OWNER"

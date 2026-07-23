@@ -35,6 +35,34 @@ case "$(uname -s):$(uname -m)" in
         ;;
 esac
 
+if [ "$(uname -s)" = "Linux" ]; then
+    musl=false
+    if command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl; then
+        musl=true
+    else
+        for loader in /lib/ld-musl-*.so.1 /usr/lib/ld-musl-*.so.1; do
+            if [ -e "$loader" ]; then
+                musl=true
+                break
+            fi
+        done
+    fi
+    if [ "$musl" = "true" ]; then
+        echo "unsupported Linux C library: conda requires a glibc-based system" >&2
+        exit 1
+    fi
+fi
+
+mkdir -p "$install_dir"
+install_dir=$(CDPATH='' cd -P "$install_dir" && pwd)
+destination="${install_dir}/conda"
+if [ -e "$destination" ] || [ -L "$destination" ]; then
+    echo "refusing to replace existing executable at ${destination}" >&2
+    echo "Use 'conda self update' for this runtime." >&2
+    echo "For recovery, move it aside and use the installer from the same runtime release." >&2
+    exit 1
+fi
+
 asset_name="conda-${target}"
 download_base="${repository}/releases/download/${version}"
 temporary_dir=$(mktemp -d)
@@ -95,17 +123,21 @@ if [ "$actual_checksum" != "$expected_checksum" ]; then
     echo "checksum verification failed for ${asset_name}" >&2
     exit 1
 fi
-
-mkdir -p "$install_dir"
-destination="${install_dir}/conda"
 install_temporary="${install_dir}/.conda.$$"
 cp "$asset_path" "$install_temporary"
 chmod 755 "$install_temporary"
-mv -f "$install_temporary" "$destination"
+mv -n "$install_temporary" "$destination"
+if [ -e "$install_temporary" ]; then
+    echo "refusing to replace executable created during installation at ${destination}" >&2
+    exit 1
+fi
 install_temporary=
 
 echo "Installed conda ${version} to ${destination}"
-case ":${PATH:-}:" in
-    *":${install_dir}:"*) ;;
-    *) echo "Add ${install_dir} to PATH to run conda." ;;
-esac
+resolved_conda=$(command -v conda 2>/dev/null || true)
+if [ -z "$resolved_conda" ]; then
+    echo "Add ${install_dir} to PATH to run conda."
+elif [ ! "$resolved_conda" -ef "$destination" ]; then
+    echo "conda currently resolves to ${resolved_conda}."
+    echo "Put ${install_dir} before its directory in PATH to use this installation."
+fi

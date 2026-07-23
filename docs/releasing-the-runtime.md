@@ -60,8 +60,16 @@ It builds these five directly managed variants:
 | `win-64` | `windows-latest` | `x86_64-pc-windows-msvc` |
 
 Each job bootstraps its executable once, then packages those exact executable
-bytes with `cs package-update`. Executables and native update packages receive
+bytes with `cs package-update`. The package verifier extracts the sole payload
+from each native `.conda` package and compares its size and SHA-256 digest with
+the finalized executable. Executables and native update packages receive
 GitHub artifact attestations.
+
+The GitHub release assets use direct ownership. Their installers refuse to
+replace an existing executable because direct runtime updates are coordinated
+through `conda self update`. Future Homebrew or PyPI artifacts must be built
+separately with external ownership and their package-manager update
+instruction.
 
 ## Publication order
 
@@ -82,4 +90,7 @@ Package artifacts retain their `linux-64`, `linux-aarch64`, `osx-64`,
 basenames are identical, so flattening them would lose release files.
 
 The upload does not use `--force`. If an executable or package is wrong, make a
-new runtime version rather than replacing a published file.
+new runtime version rather than replacing a published file. A rerun skips an
+existing package only when its identity, size, and SHA-256 match, then waits
+until all five packages are visible through the Anaconda.org API and channel
+repodata.

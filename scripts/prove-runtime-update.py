@@ -26,6 +26,7 @@ from ruamel.yaml import YAML
 
 OUTPUT_LIMIT = 2_000
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+COMPETING_CONDA_VERSION = "9999.0.0"
 
 
 @dataclass(frozen=True)
@@ -336,6 +337,50 @@ def mirror_packages(
             raise RuntimeError(f"published package changed: {published}")
 
 
+def publish_competing_conda(channel_uri: str, root: Path) -> None:
+    recipe = root / "recipe.yaml"
+    output = root / "output"
+    root.mkdir()
+    recipe.write_text(
+        f"""\
+package:
+  name: conda
+  version: {COMPETING_CONDA_VERSION}
+
+build:
+  number: 0
+  string: runtime_pin_sentinel_0
+  noarch: generic
+
+about:
+  summary: Test-only candidate used to prove standalone runtime version pinning
+  license: BSD-3-Clause
+""",
+        encoding="utf-8",
+    )
+    run(
+        [
+            "rattler-build",
+            "build",
+            "--recipe",
+            recipe,
+            "--output-dir",
+            output,
+            "--package-format",
+            "conda",
+            "--test",
+            "skip",
+            "--no-include-recipe",
+        ]
+    )
+    packages = list(output.rglob(f"conda-{COMPETING_CONDA_VERSION}-*.conda"))
+    if len(packages) != 1:
+        raise RuntimeError(
+            f"expected one competing conda package in {output}, found {packages}"
+        )
+    run(["rattler-build", "publish", "--to", channel_uri, packages[0]])
+
+
 def find_conda_package(packages: list[LockedPackage]) -> tuple[LockedPackage, str]:
     matches = []
     for package in packages:
@@ -372,6 +417,7 @@ def prepare(args: argparse.Namespace) -> None:
         gen2_packages,
         work / "downloads",
     )
+    publish_competing_conda(channel_uri, work / "competing-conda")
 
 
 def template_for_builder(cs_path: Path) -> Path:
@@ -494,6 +540,7 @@ def runtime_environment(scenario: Scenario, *, offline: bool = False) -> dict[st
         "CONDA_USE_ONLY_TAR_BZ2",
         "CONDARC",
         "PYTHONPATH",
+        "RATTLER_CACHE_DIR",
         "_CE_CONDA",
         "_CE_M",
     ):
@@ -504,6 +551,7 @@ def runtime_environment(scenario: Scenario, *, offline: bool = False) -> dict[st
     env["CONDA_ENVS_PATH"] = str(scenario.envs)
     env["CONDA_PKGS_DIRS"] = str(scenario.packages)
     env["CONDARC"] = str(scenario.prefix / ".condarc")
+    env["RATTLER_CACHE_DIR"] = str(scenario.root / "rattler-cache")
     if offline:
         env["CONDA_OFFLINE"] = "1"
     return env
@@ -749,6 +797,11 @@ def prove_direct_update(
         raise RuntimeError(
             f"runtime was not usable after inner failure: {fresh.stdout!r}"
         )
+    if sha256(scenario.stable) != initial.executable_sha256:
+        raise RuntimeError("startup recovery promoted the unapproved outer executable")
+    verify_outer_identity(scenario, gen1.runtime, "direct")
+    if pending_phase(scenario.prefix) is not None:
+        raise RuntimeError("startup recovery left the unapproved outer update pending")
 
     expected_gen2_sha256 = sha256(gen2_binary)
     update = runtime_run(scenario, ["self", "update", "--json", "--yes"])

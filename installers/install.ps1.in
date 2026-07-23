@@ -15,6 +15,17 @@ if (-not [Environment]::Is64BitOperatingSystem) {
     throw "The standalone conda runtime requires 64-bit Windows"
 }
 
+New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+$InstallDir = [IO.Path]::GetFullPath($InstallDir)
+$Destination = Join-Path $InstallDir "conda.exe"
+if (Test-Path -LiteralPath $Destination) {
+    throw @"
+Refusing to replace existing executable at $Destination.
+Use 'conda self update' for this runtime.
+For recovery, move it aside and use the installer from the same runtime release.
+"@
+}
+
 $AssetName = "conda-x86_64-pc-windows-msvc.exe"
 $DownloadBase = "$Repository/releases/download/$Version"
 $TemporaryDir = Join-Path ([IO.Path]::GetTempPath()) "conda-runtime-$([Guid]::NewGuid())"
@@ -44,16 +55,19 @@ try {
         throw "Checksum verification failed for $AssetName"
     }
 
-    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    $Destination = Join-Path $InstallDir "conda.exe"
     $InstallTemporary = Join-Path $InstallDir ".conda.exe.$PID"
     Copy-Item -LiteralPath $AssetPath -Destination $InstallTemporary
-    Move-Item -Force -LiteralPath $InstallTemporary -Destination $Destination
+    Move-Item -LiteralPath $InstallTemporary -Destination $Destination
     $InstallTemporary = $null
 
     Write-Output "Installed conda $Version to $Destination"
-    if (($env:PATH -split [IO.Path]::PathSeparator) -notcontains $InstallDir) {
+    $ResolvedConda = Get-Command conda -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if (-not $ResolvedConda) {
         Write-Output "Add $InstallDir to PATH to run conda."
+    } elseif ([IO.Path]::GetFullPath($ResolvedConda.Source) -ne $Destination) {
+        Write-Output "conda currently resolves to $($ResolvedConda.Source)."
+        Write-Output "Put $InstallDir before its directory in PATH to use this installation."
     }
 } finally {
     Remove-Item -Recurse -Force -LiteralPath $TemporaryDir -ErrorAction SilentlyContinue
