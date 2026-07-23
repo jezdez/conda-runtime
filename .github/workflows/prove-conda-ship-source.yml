@@ -1,0 +1,84 @@
+name: Prove conda-ship Windows source candidate
+
+on:
+  push:
+    branches:
+      - fix/prove-conda-ship-windows-source
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prove-conda-ship-source-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Prove Windows two-layer update
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: jezdez/conda-ship
+          ref: 1b80ee88a2d81ea0f4b7d77ac792e106da3cd26a
+          path: conda-ship-source
+          persist-credentials: false
+
+      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
+        with:
+          pixi-version: v0.73.0
+          manifest-path: updater/pyproject.toml
+          cache: true
+
+      - name: Build the conda-ship source candidate
+        shell: bash
+        run: |
+          pixi run --manifest-path conda-ship-source/pixi.toml --locked \
+            cargo build \
+            --manifest-path conda-ship-source/Cargo.toml \
+            --locked \
+            --release \
+            --features runtime-template \
+            --bin cs \
+            --bin cs-template
+
+      - name: Prove the Windows two-layer update
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          work="${RUNNER_TEMP}/conda-runtime-source-proof"
+          cs="${GITHUB_WORKSPACE}/conda-ship-source/target/release/cs.exe"
+          template="${GITHUB_WORKSPACE}/conda-ship-source/target/release/cs-template.exe"
+          gen1_out="${work}/gen1-build"
+
+          pixi run --manifest-path updater/pyproject.toml --locked \
+            python scripts/prove-runtime-update.py prepare \
+            --work "$work" \
+            --platform win-64
+
+          "$cs" build \
+            --root "${work}/gen1" \
+            --platform win-64 \
+            --template "$template" \
+            --out-dir "$gen1_out"
+
+          gen1_binary="$(
+            python -c \
+              'import json, pathlib, sys; root = pathlib.Path(sys.argv[1]); info = next(root.glob("*.info.json")); print(root / json.loads(info.read_text())["binary"])' \
+              "$gen1_out"
+          )"
+
+          pixi run --manifest-path updater/pyproject.toml --locked \
+            python scripts/prove-runtime-update.py full \
+            --work "$work" \
+            --platform win-64 \
+            --cs-path "$cs" \
+            --gen1-binary "$gen1_binary"
