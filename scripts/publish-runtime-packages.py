@@ -18,6 +18,43 @@ CHANNEL_URL = "https://conda.anaconda.org"
 CHANNEL = "main"
 PACKAGE_NAME = "conda-runtime"
 SUBDIRS = ("linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64")
+NATIVE_IDENTITIES = {
+    "linux-64": {
+        "platform": "linux",
+        "arch": "x86_64",
+        "machine": "x86_64",
+        "operatingsystem": "linux",
+        "target-triplet": "x86_64-any-linux",
+    },
+    "linux-aarch64": {
+        "platform": "linux",
+        "arch": "aarch64",
+        "machine": "aarch64",
+        "operatingsystem": "linux",
+        "target-triplet": "aarch64-any-linux",
+    },
+    "osx-64": {
+        "platform": "osx",
+        "arch": "x86_64",
+        "machine": "x86_64",
+        "operatingsystem": "darwin",
+        "target-triplet": "x86_64-any-darwin",
+    },
+    "osx-arm64": {
+        "platform": "osx",
+        "arch": "arm64",
+        "machine": "arm64",
+        "operatingsystem": "darwin",
+        "target-triplet": "arm64-any-darwin",
+    },
+    "win-64": {
+        "platform": "win",
+        "arch": "x86_64",
+        "machine": "x86_64",
+        "operatingsystem": "win32",
+        "target-triplet": "x86_64-any-win32",
+    },
+}
 
 
 class RemoteMismatch(RuntimeError):
@@ -147,11 +184,10 @@ def api_has(package: RuntimePackage, owner: str) -> bool:
         f"Anaconda.org attributes for {package.basename}",
         attrs,
         {
-            "name": PACKAGE_NAME,
-            "version": package.version,
             "build": "0",
             "build_number": 0,
             "subdir": package.subdir,
+            **NATIVE_IDENTITIES[package.subdir],
         },
     )
     return True
