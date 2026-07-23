@@ -724,7 +724,15 @@ def replace_executable(source: Path, destination: Path) -> None:
     temporary = destination.with_name(f".{destination.name}.external")
     temporary.unlink(missing_ok=True)
     shutil.copy2(source, temporary)
-    os.replace(temporary, destination)
+    deadline = time.monotonic() + 60
+    while True:
+        try:
+            os.replace(temporary, destination)
+            return
+        except PermissionError:
+            if os.name != "nt" or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.1)
 
 
 def prove_direct_update(
