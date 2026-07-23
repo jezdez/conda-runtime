@@ -546,7 +546,7 @@ jobs:
           pixi-version: v0.73.0
           manifest-path: updater/pyproject.toml
           run-install: false
-          cache: true
+          cache: false
 
       - name: Upload immutable update packages
         shell: bash
