@@ -14,3 +14,7 @@ development and has not published a stable release.
 
 Release instructions for the internal plugin are in
 [`docs/releasing-the-updater.md`](docs/releasing-the-updater.md).
+
+Release instructions for the standalone executable and its native update
+packages are in
+[`docs/releasing-the-runtime.md`](docs/releasing-the-runtime.md).
