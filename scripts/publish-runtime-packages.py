@@ -184,8 +184,6 @@ def api_has(package: RuntimePackage, owner: str) -> bool:
         f"Anaconda.org attributes for {package.basename}",
         attrs,
         {
-            "name": PACKAGE_NAME,
-            "version": package.version,
             "build": "0",
             "build_number": 0,
             "subdir": package.subdir,

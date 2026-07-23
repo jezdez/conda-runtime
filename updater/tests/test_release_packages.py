@@ -42,8 +42,6 @@ def api_metadata(package):
                 "version": package.version,
                 "labels": ["main"],
                 "attrs": {
-                    "name": "conda-runtime",
-                    "version": package.version,
                     "build": "0",
                     "build_number": 0,
                     "subdir": package.subdir,
