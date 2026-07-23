@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
 class RuntimeMetadata:
     prefix: Path
     path: Path
+    version: str
     executable: Path
     lock_path: Path
     ownership: str
@@ -67,6 +69,9 @@ def read_runtime_metadata(prefix: Path, metadata_path: Path) -> RuntimeMetadata 
     if not isinstance(update, dict):
         raise CondaError(f"Runtime update metadata is invalid: {metadata_path}")
 
+    version = require_string(data, "version", metadata_path)
+    conda_version_from_runtime(version)
+
     ownership = require_string(update, "ownership", metadata_path)
     if ownership not in {"direct", "external"}:
         raise CondaError(f"Runtime update ownership is invalid: {metadata_path}")
@@ -104,6 +109,7 @@ def read_runtime_metadata(prefix: Path, metadata_path: Path) -> RuntimeMetadata 
     return RuntimeMetadata(
         prefix=prefix,
         path=metadata_path,
+        version=version,
         executable=executable,
         lock_path=lock_path,
         ownership=ownership,
@@ -116,3 +122,12 @@ def require_string(data: Mapping[str, Any], key: str, metadata_path: Path) -> st
     if not isinstance(value, str) or not value:
         raise CondaError(f"Runtime update field {key!r} is invalid: {metadata_path}")
     return value
+
+
+def conda_version_from_runtime(version: str) -> str:
+    """Return the bundled conda version from a runtime release version."""
+
+    match = re.fullmatch(r"(?P<conda>[0-9]+\.[0-9]+\.[0-9]+)(?:\.post[0-9]+)?", version)
+    if match is None:
+        raise CondaError(f"Standalone conda runtime version is invalid: {version!r}")
+    return match["conda"]
