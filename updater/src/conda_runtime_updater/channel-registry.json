@@ -1,0 +1,11 @@
+{
+  "channels": {
+    "conda-forge": {
+      "description": "Community-maintained conda package channel.",
+      "mirrors": [
+        "https://conda.anaconda.org/conda-forge",
+        "https://prefix.dev/conda-forge"
+      ]
+    }
+  }
+}

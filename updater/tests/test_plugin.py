@@ -457,9 +457,13 @@ def test_helper_process_failures_are_conda_errors(monkeypatch, runtime, error, m
 
 
 def test_hook_registration_covers_root_solve_commands():
+    commands = list(plugin.conda_pre_commands())
     pre = list(plugin.conda_pre_solves())
     post = list(plugin.conda_post_commands())
 
+    assert len(commands) == 1
+    assert commands[0].action is plugin.select_channel
+    assert commands[0].run_for == plugin.CHANNEL_COMMANDS
     assert len(pre) == 1
     assert pre[0].action is plugin.pre_solve
     assert len(post) == 1
