@@ -157,10 +157,11 @@ def post_command(command: str) -> None:
         )
 
 
-@plugins.hookimpl
+@plugins.hookimpl(tryfirst=True)
 def conda_pre_commands() -> Iterable[CondaPreCommand]:
     yield CondaPreCommand(
-        name="conda-runtime-channel-selection",
+        # Conda sorts pre-command hooks by name. Select before check_tos reads channels.
+        name="channel-selection-conda-runtime",
         action=select_channel,
         run_for=CHANNEL_COMMANDS,
     )

@@ -456,12 +456,14 @@ def test_helper_process_failures_are_conda_errors(monkeypatch, runtime, error, m
         helper.invoke_helper(runtime, "check")
 
 
-def test_hook_registration_covers_root_solve_commands():
+def test_hook_registration_covers_channel_and_root_solve_commands():
     commands = list(plugin.conda_pre_commands())
     pre = list(plugin.conda_pre_solves())
     post = list(plugin.conda_post_commands())
 
     assert len(commands) == 1
+    assert commands[0].name == "channel-selection-conda-runtime"
+    assert commands[0].name < "check_tos"
     assert commands[0].action is plugin.select_channel
     assert commands[0].run_for == plugin.CHANNEL_COMMANDS
     assert len(pre) == 1

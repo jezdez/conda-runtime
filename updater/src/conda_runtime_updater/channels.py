@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import sys
+from argparse import Namespace
 from importlib.resources import files
 from typing import TYPE_CHECKING
 
-from conda.base.context import context, user_rc_path
+from conda.base.constants import CMD_LINE_SOURCE
+from conda.base.context import context, reset_context, user_rc_path
 from conda.cli.condarc import ConfigurationFile
 from conda.exceptions import CondaError
 
@@ -18,8 +20,11 @@ if TYPE_CHECKING:
 CHANNEL_COMMANDS = {
     "create",
     "env_create",
+    "env_remove",
     "env_update",
     "install",
+    "remove",
+    "rename",
     "repoquery",
     "search",
     "update",
@@ -76,14 +81,13 @@ def persist_channel(url: str) -> None:
         configuration.add("channels", url, prepend=True)
 
 
-def apply_channel(url: str) -> None:
-    """Apply the selected URL to the command already being executed."""
+def reload_context() -> None:
+    """Reload conda configuration without dropping command-line settings."""
 
-    # CondaPreCommand does not expose the parsed arguments. This private refresh
-    # must be replaced by a supported conda API before releasing the feature.
-    arguments = dict(context._argparse_args)
-    arguments["channel"] = (url,)
-    context._set_argparse_args(arguments)
+    arguments = dict(context.collect_all().get(CMD_LINE_SOURCE, {}))
+    if context.prefix_specified:
+        arguments["prefix"] = context.target_prefix
+    reset_context(argparse_args=Namespace(**arguments))
 
 
 def select_channel(command: str) -> None:
@@ -95,4 +99,4 @@ def select_channel(command: str) -> None:
 
     url = prompt_for_channel(registry_choices())
     persist_channel(url)
-    apply_channel(url)
+    reload_context()
