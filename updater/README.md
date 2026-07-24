@@ -25,10 +25,10 @@ conda pin without checking, staging, or locking an outer update.
 For an externally managed runtime, an available outer update stops the inner
 transaction and reports the update command for the detected package manager.
 The plugin recognizes Homebrew, pipx, uv tools, and RECORD-bound Python wheel
-installations from receipts those tools already write. A downstream external
-installer can retain an explicit instruction in the runtime record as a
-fallback. The package manager replaces the executable before the conda update
-is retried.
+installations from receipts those tools already write. Detection records the
+final user-facing instruction in the runtime record. A downstream external
+installer can record its own instruction. The package manager replaces the
+executable before the conda update is retried.
 
 The reported commands are:
 

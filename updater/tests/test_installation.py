@@ -18,6 +18,20 @@ from conda_runtime_updater.installation import (
 )
 from conda_runtime_updater.metadata import RuntimeMetadata
 
+HOMEBREW_INSTRUCTION = (
+    "This conda runtime is managed by Homebrew. Run brew update && brew upgrade conda, "
+    "then retry conda self update."
+)
+UV_TOOL_INSTRUCTION = (
+    "This conda runtime is managed as a uv tool. Run uv tool upgrade conda-runtime, "
+    "then retry conda self update."
+)
+PIPX_INSTRUCTION = (
+    "This conda runtime is managed by pipx. Run pipx upgrade conda-runtime for a user "
+    "installation or pipx upgrade --global conda-runtime for a global installation, "
+    "then retry conda self update."
+)
+
 
 @pytest.fixture(autouse=True)
 def disable_package_manager_commands(monkeypatch):
@@ -44,7 +58,7 @@ def write_wheel_receipt(
     *,
     installer: str | None = None,
     valid_record: bool = True,
-) -> None:
+) -> Path:
     dist_info = site_packages / "conda_runtime-26.5.3.dist-info"
     dist_info.mkdir(parents=True)
     (dist_info / "METADATA").write_text(
@@ -61,45 +75,10 @@ def write_wheel_receipt(
     else:
         record = f"{relative},,\n"
     (dist_info / "RECORD").write_text(record, encoding="utf-8")
+    return dist_info
 
 
-@pytest.mark.skipif(os.name == "nt", reason="Homebrew uses POSIX symlinks")
-def test_detects_homebrew_keg_and_returns_stable_symlink(tmp_path):
-    keg = tmp_path / "homebrew" / "Cellar" / "conda" / "26.5.3"
-    executable = keg / "bin" / "conda"
-    executable.parent.mkdir(parents=True)
-    executable.write_bytes(b"conda")
-    (keg / "INSTALL_RECEIPT.json").write_text(
-        json.dumps({"homebrew_version": "5.0.0"}),
-        encoding="utf-8",
-    )
-    stable = tmp_path / "homebrew" / "bin" / "conda"
-    stable.parent.mkdir()
-    stable.symlink_to(executable)
-    opt = tmp_path / "homebrew" / "opt"
-    opt.mkdir()
-    (opt / "conda").symlink_to(keg, target_is_directory=True)
-
-    detected = detect_external_installation(runtime_for(executable))
-
-    assert detected == DetectedInstallation(name="homebrew", executable=stable)
-
-
-def test_homebrew_receipt_without_stable_symlink_is_not_accepted(tmp_path):
-    keg = tmp_path / "homebrew" / "Cellar" / "conda" / "26.5.3"
-    executable = keg / "bin" / "conda"
-    executable.parent.mkdir(parents=True)
-    executable.write_bytes(b"conda")
-    (keg / "INSTALL_RECEIPT.json").write_text(
-        json.dumps({"homebrew_version": "5.0.0"}),
-        encoding="utf-8",
-    )
-
-    assert detect_external_installation(runtime_for(executable)) is None
-
-
-@pytest.mark.skipif(os.name == "nt", reason="Homebrew uses POSIX symlinks")
-def test_detects_homebrew_opt_link_when_main_link_is_absent(tmp_path):
+def homebrew_keg(tmp_path):
     prefix = tmp_path / "homebrew"
     keg = prefix / "Cellar" / "conda" / "26.5.3"
     executable = keg / "bin" / "conda"
@@ -109,6 +88,101 @@ def test_detects_homebrew_opt_link_when_main_link_is_absent(tmp_path):
         json.dumps({"homebrew_version": "5.0.0"}),
         encoding="utf-8",
     )
+    return prefix, keg, executable
+
+
+def write_uv_receipt(
+    tool: Path,
+    executable: Path,
+    *,
+    requirements: str = '[{ name = "conda-runtime" }]',
+    source: str = "conda-runtime",
+) -> None:
+    tool.mkdir(parents=True, exist_ok=True)
+    (tool / "uv-receipt.toml").write_text(
+        "\n".join(
+            (
+                "[tool]",
+                f"requirements = {requirements}",
+                "entrypoints = [",
+                (
+                    f'  {{ name = "conda", install-path = {json.dumps(str(executable))}, '
+                    f'from = "{source}" }},'
+                ),
+                "]",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+
+def write_pipx_receipt(tool: Path, executable: Path, *, encoded_path: bool = False) -> None:
+    app_path: str | dict[str, str]
+    if encoded_path:
+        app_path = {"__type__": "Path", "__Path__": str(executable)}
+    else:
+        app_path = str(executable)
+    (tool / "pipx_metadata.json").write_text(
+        json.dumps(
+            {
+                "pipx_metadata_version": "0.12",
+                "main_package": {
+                    "package": "conda-runtime",
+                    "apps": ["conda"],
+                    "app_paths": [app_path],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def wheel_installation(tmp_path, *, installer: str | None, with_owner: bool = False):
+    scripts = tmp_path / ("Scripts" if os.name == "nt" else "bin")
+    executable = scripts / ("conda.exe" if os.name == "nt" else "conda")
+    executable.parent.mkdir()
+    executable.write_bytes(b"conda runtime")
+    site_packages = (
+        tmp_path / "Lib" / "site-packages"
+        if os.name == "nt"
+        else tmp_path / "lib" / "python3.12" / "site-packages"
+    )
+    owner = scripts / ("python.exe" if os.name == "nt" else "python")
+    if with_owner:
+        owner.write_bytes(b"python")
+        (tmp_path / "pyvenv.cfg").write_text("home = test\n", encoding="utf-8")
+    write_wheel_receipt(executable, site_packages, installer=installer)
+    return executable, site_packages, owner
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Homebrew uses POSIX symlinks")
+def test_detects_homebrew_keg_and_returns_stable_symlink(tmp_path):
+    prefix, keg, executable = homebrew_keg(tmp_path)
+    stable = prefix / "bin" / "conda"
+    stable.parent.mkdir()
+    stable.symlink_to(executable)
+    opt = prefix / "opt"
+    opt.mkdir()
+    (opt / "conda").symlink_to(keg, target_is_directory=True)
+
+    detected = detect_external_installation(runtime_for(executable))
+
+    assert detected == DetectedInstallation(
+        name="homebrew",
+        executable=stable,
+        instruction=HOMEBREW_INSTRUCTION,
+    )
+
+
+def test_homebrew_receipt_without_stable_symlink_is_not_accepted(tmp_path):
+    _prefix, _keg, executable = homebrew_keg(tmp_path)
+
+    assert detect_external_installation(runtime_for(executable)) is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Homebrew uses POSIX symlinks")
+def test_detects_homebrew_opt_link_when_main_link_is_absent(tmp_path):
+    prefix, keg, _executable = homebrew_keg(tmp_path)
     opt = prefix / "opt"
     opt.mkdir()
     (opt / "conda").symlink_to(keg, target_is_directory=True)
@@ -118,6 +192,7 @@ def test_detects_homebrew_opt_link_when_main_link_is_absent(tmp_path):
     assert detected == DetectedInstallation(
         name="homebrew",
         executable=opt / "conda" / "bin" / "conda",
+        instruction=HOMEBREW_INSTRUCTION,
     )
 
 
@@ -126,37 +201,16 @@ def test_detects_uv_tool_receipt(tmp_path):
     executable = tool / ("Scripts/conda.exe" if os.name == "nt" else "bin/conda")
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"conda")
-    install_path = json.dumps(str(executable))
-    (tool / "uv-receipt.toml").write_text(
-        "\n".join(
-            (
-                "[tool]",
-                'requirements = [{ name = "conda-runtime" }]',
-                "entrypoints = [",
-                (
-                    f'  {{ name = "conda", install-path = {install_path}, '
-                    'from = "conda-runtime" },'
-                ),
-                "]",
-            )
-        ),
-        encoding="utf-8",
-    )
-    (tool / "pipx_metadata.json").write_text(
-        json.dumps(
-            {
-                "main_package": {
-                    "package": "conda-runtime",
-                    "app_paths": [str(executable)],
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
+    write_uv_receipt(tool, executable)
+    write_pipx_receipt(tool, executable)
 
     detected = detect_external_installation(runtime_for(executable))
 
-    assert detected == DetectedInstallation(name="uv-tool", executable=executable)
+    assert detected == DetectedInstallation(
+        name="uv-tool",
+        executable=executable,
+        instruction=UV_TOOL_INSTRUCTION,
+    )
 
 
 def test_detects_copied_uv_tool_executable_from_reported_tool_dir(monkeypatch, tmp_path):
@@ -166,21 +220,7 @@ def test_detects_copied_uv_tool_executable_from_reported_tool_dir(monkeypatch, t
     executable = tmp_path / "uv" / "bin" / ("conda.exe" if os.name == "nt" else "conda")
     executable.parent.mkdir()
     executable.write_bytes(b"conda")
-    receipt.write_text(
-        "\n".join(
-            (
-                "[tool]",
-                'requirements = [{ name = "conda-runtime" }]',
-                "entrypoints = [",
-                (
-                    f'  {{ name = "conda", install-path = {json.dumps(str(executable))}, '
-                    'from = "conda-runtime" },'
-                ),
-                "]",
-            )
-        ),
-        encoding="utf-8",
-    )
+    write_uv_receipt(receipt.parent, executable)
     monkeypatch.setattr(
         installation,
         "_reported_directory",
@@ -189,7 +229,11 @@ def test_detects_copied_uv_tool_executable_from_reported_tool_dir(monkeypatch, t
 
     detected = detect_external_installation(runtime_for(executable))
 
-    assert detected == DetectedInstallation(name="uv-tool", executable=executable)
+    assert detected == DetectedInstallation(
+        name="uv-tool",
+        executable=executable,
+        instruction=UV_TOOL_INSTRUCTION,
+    )
 
 
 @pytest.mark.parametrize(
@@ -210,21 +254,7 @@ def test_uv_tool_receipt_binds_main_requirement_and_entrypoint(tmp_path, require
     executable = tool / ("Scripts/conda.exe" if os.name == "nt" else "bin/conda")
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"conda")
-    (tool / "uv-receipt.toml").write_text(
-        "\n".join(
-            (
-                "[tool]",
-                f"requirements = {requirements}",
-                "entrypoints = [",
-                (
-                    f'  {{ name = "conda", install-path = {json.dumps(str(executable))}, '
-                    f'from = "{source}" }},'
-                ),
-                "]",
-            )
-        ),
-        encoding="utf-8",
-    )
+    write_uv_receipt(tool, executable, requirements=requirements, source=source)
 
     assert detect_external_installation(runtime_for(executable)) is None
 
@@ -248,35 +278,14 @@ def test_detects_pipx_receipt(tmp_path):
     executable = tool / ("Scripts/conda.exe" if os.name == "nt" else "bin/conda")
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"conda")
-    (tool / "pipx_metadata.json").write_text(
-        json.dumps(
-            {
-                "pipx_metadata_version": "0.12",
-                "main_package": {
-                    "package": "conda-runtime",
-                    "apps": ["conda"],
-                    "app_paths": [
-                        {
-                            "__type__": "Path",
-                            "__Path__": str(executable),
-                        }
-                    ],
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    write_pipx_receipt(tool, executable, encoded_path=True)
 
     detected = detect_external_installation(runtime_for(executable))
 
     assert detected == DetectedInstallation(
         name="pipx",
         executable=executable,
-        instruction=(
-            "This conda runtime is managed by pipx. Run pipx upgrade conda-runtime for a user "
-            "installation or pipx upgrade --global conda-runtime for a global installation, "
-            "then retry conda self update."
-        ),
+        instruction=PIPX_INSTRUCTION,
     )
 
 
@@ -284,7 +293,11 @@ def test_detects_pipx_receipt(tmp_path):
 @pytest.mark.parametrize(
     ("global_install", "instruction"),
     [
-        (False, None),
+        (
+            False,
+            "This conda runtime is managed by pipx. Run pipx upgrade conda-runtime, "
+            "then retry conda self update.",
+        ),
         (
             True,
             "This conda runtime is managed by global pipx. Run "
@@ -304,17 +317,7 @@ def test_pipx_receipt_prefers_reported_exposed_symlink(
     internal = tool / "bin" / "conda"
     internal.parent.mkdir(parents=True)
     internal.write_bytes(b"conda")
-    (tool / "pipx_metadata.json").write_text(
-        json.dumps(
-            {
-                "main_package": {
-                    "package": "conda-runtime",
-                    "app_paths": [str(internal)],
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
+    write_pipx_receipt(tool, internal)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     stable = bin_dir / "conda"
@@ -363,24 +366,7 @@ def test_detects_copied_pipx_executable_from_reported_paths(monkeypatch, tmp_pat
     )
     internal.parent.mkdir(parents=True)
     internal.write_bytes(b"conda")
-    (internal.parents[1] / "pipx_metadata.json").write_text(
-        json.dumps(
-            {
-                "pipx_metadata_version": "0.12",
-                "main_package": {
-                    "package": "conda-runtime",
-                    "apps": ["conda"],
-                    "app_paths": [
-                        {
-                            "__type__": "Path",
-                            "__Path__": str(internal),
-                        }
-                    ],
-                },
-            }
-        ),
-        encoding="utf-8",
-    )
+    write_pipx_receipt(internal.parents[1], internal, encoded_path=True)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     stable = bin_dir / internal.name
@@ -397,7 +383,14 @@ def test_detects_copied_pipx_executable_from_reported_paths(monkeypatch, tmp_pat
 
     detected = detect_external_installation(runtime_for(stable))
 
-    assert detected == DetectedInstallation(name="pipx", executable=stable)
+    assert detected == DetectedInstallation(
+        name="pipx",
+        executable=stable,
+        instruction=(
+            "This conda runtime is managed by pipx. Run pipx upgrade conda-runtime, "
+            "then retry conda self update."
+        ),
+    )
 
 
 def test_rejects_changed_pipx_exposed_copy(monkeypatch, tmp_path):
@@ -405,17 +398,7 @@ def test_rejects_changed_pipx_exposed_copy(monkeypatch, tmp_path):
     internal = home / "venvs" / "conda-runtime" / "bin" / "conda"
     internal.parent.mkdir(parents=True)
     internal.write_bytes(b"internal")
-    (internal.parents[1] / "pipx_metadata.json").write_text(
-        json.dumps(
-            {
-                "main_package": {
-                    "package": "conda-runtime",
-                    "app_paths": [str(internal)],
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
+    write_pipx_receipt(internal.parents[1], internal)
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     stable = bin_dir / "conda"
@@ -439,20 +422,14 @@ def test_rejects_changed_pipx_exposed_copy(monkeypatch, tmp_path):
     ],
 )
 def test_detects_record_bound_python_wheel(tmp_path, installer, expected):
-    scripts = tmp_path / ("Scripts" if os.name == "nt" else "bin")
-    executable = scripts / ("conda.exe" if os.name == "nt" else "conda")
-    executable.parent.mkdir()
-    executable.write_bytes(b"conda runtime")
-    site_packages = (
-        tmp_path / "Lib" / "site-packages"
-        if os.name == "nt"
-        else tmp_path / "lib" / "python3.12" / "site-packages"
-    )
-    write_wheel_receipt(executable, site_packages, installer=installer)
+    executable, _site_packages, _owner = wheel_installation(tmp_path, installer=installer)
 
     detected = detect_external_installation(runtime_for(executable))
 
-    assert detected == DetectedInstallation(name=expected, executable=executable)
+    assert detected is not None
+    assert detected.name == expected
+    assert detected.executable == executable
+    assert detected.instruction
 
 
 def test_python_wheel_requires_record_hash_and_size(tmp_path):
@@ -466,6 +443,22 @@ def test_python_wheel_requires_record_hash_and_size(tmp_path):
 
 
 @pytest.mark.parametrize(
+    ("filename", "content"),
+    [
+        ("METADATA", b"\xff"),
+        ("RECORD", b"../../bin/conda,sha256=invalid,not-a-size\n"),
+        ("INSTALLER", b"\xff"),
+    ],
+)
+def test_python_wheel_malformed_receipt_fails_closed(tmp_path, filename, content):
+    executable, site_packages, _owner = wheel_installation(tmp_path, installer="pip")
+    dist_info = site_packages / "conda_runtime-26.5.3.dist-info"
+    (dist_info / filename).write_bytes(content)
+
+    assert detect_external_installation(runtime_for(executable)) is None
+
+
+@pytest.mark.parametrize(
     ("installer", "expected"),
     [
         ("pip", "-m pip install --upgrade conda-runtime"),
@@ -473,19 +466,11 @@ def test_python_wheel_requires_record_hash_and_size(tmp_path):
     ],
 )
 def test_python_wheel_instruction_targets_owning_interpreter(tmp_path, installer, expected):
-    scripts = tmp_path / ("Scripts" if os.name == "nt" else "bin")
-    executable = scripts / ("conda.exe" if os.name == "nt" else "conda")
-    executable.parent.mkdir()
-    executable.write_bytes(b"conda runtime")
-    owner = scripts / ("python.exe" if os.name == "nt" else "python")
-    owner.write_bytes(b"python")
-    (tmp_path / "pyvenv.cfg").write_text("home = test\n", encoding="utf-8")
-    site_packages = (
-        tmp_path / "Lib" / "site-packages"
-        if os.name == "nt"
-        else tmp_path / "lib" / "python3.12" / "site-packages"
+    executable, _site_packages, owner = wheel_installation(
+        tmp_path,
+        installer=installer,
+        with_owner=True,
     )
-    write_wheel_receipt(executable, site_packages, installer=installer)
 
     detected = detect_external_installation(runtime_for(executable))
 
@@ -505,7 +490,10 @@ def test_python_wheel_user_scheme_does_not_guess_adjacent_interpreter(tmp_path):
 
     detected = detect_external_installation(runtime_for(executable))
 
-    assert detected == DetectedInstallation(name="pip", executable=executable)
+    assert detected is not None
+    assert detected.name == "pip"
+    assert detected.executable == executable
+    assert "installed by pip" in detected.instruction
 
 
 def test_detects_windows_user_scheme_with_generic_instruction(tmp_path):
@@ -518,7 +506,10 @@ def test_detects_windows_user_scheme_with_generic_instruction(tmp_path):
 
     detected = detect_external_installation(runtime_for(executable))
 
-    assert detected == DetectedInstallation(name="pip", executable=executable)
+    assert detected is not None
+    assert detected.name == "pip"
+    assert detected.executable == executable
+    assert "installed by pip" in detected.instruction
 
 
 @pytest.mark.parametrize(
@@ -528,11 +519,10 @@ def test_detects_windows_user_scheme_with_generic_instruction(tmp_path):
         SimpleNamespace(returncode=0, stdout="relative/path\n", stderr=""),
         SimpleNamespace(returncode=0, stdout="/one\n/two\n", stderr=""),
         subprocess.TimeoutExpired(["uv", "tool", "dir"], 5),
+        OSError("command not found"),
     ],
 )
 def test_reported_directory_fails_closed(monkeypatch, outcome):
-    monkeypatch.setattr(installation.shutil, "which", lambda _name: "/usr/bin/uv")
-
     def run(*_args, **_kwargs):
         if isinstance(outcome, Exception):
             raise outcome
@@ -543,29 +533,7 @@ def test_reported_directory_fails_closed(monkeypatch, outcome):
     assert installation._reported_directory("uv", "tool", "dir") is None
 
 
-@pytest.mark.parametrize(
-    ("installation", "command"),
-    [
-        ("homebrew", "brew update && brew upgrade conda"),
-        ("pipx", "pipx upgrade conda-runtime"),
-        ("uv-tool", "uv tool upgrade conda-runtime"),
-        ("pip", "Python environment that owns this executable"),
-        ("uv-pip", "Python environment that owns this executable"),
-        ("python", "Python package manager that installed it"),
-    ],
-)
-def test_external_instruction_matches_installation(tmp_path, installation, command):
-    executable = tmp_path / "conda"
-    executable.write_bytes(b"conda")
-    runtime = runtime_for(executable, installation=installation)
-
-    instruction = external_update_instruction(runtime)
-
-    assert command in instruction
-    assert "retry conda self update" in instruction
-
-
-def test_downstream_instruction_is_fallback_for_unknown_installation(tmp_path):
+def test_external_instruction_uses_persisted_instruction(tmp_path):
     executable = tmp_path / "conda"
     executable.write_bytes(b"conda")
     runtime = RuntimeMetadata(
@@ -580,3 +548,17 @@ def test_downstream_instruction_is_fallback_for_unknown_installation(tmp_path):
     )
 
     assert external_update_instruction(runtime) == "Run the downstream updater."
+
+
+def test_external_instruction_uses_helper_compatibility_fallback(tmp_path):
+    executable = tmp_path / "conda"
+    executable.write_bytes(b"conda")
+    runtime = runtime_for(executable, installation="old-installer")
+
+    assert (
+        external_update_instruction(
+            runtime,
+            compatibility_instruction="Run the compatible updater.",
+        )
+        == "Run the compatible updater."
+    )

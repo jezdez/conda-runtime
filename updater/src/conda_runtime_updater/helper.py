@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from conda.base.context import context
@@ -14,6 +13,7 @@ from conda.exceptions import CondaError
 from .metadata import valid_installation
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from typing import Any
 
     from .metadata import RuntimeMetadata
@@ -93,25 +93,11 @@ def invoke_helper(
 
 def validate_record_installation(
     response: dict[str, Any],
-    *,
-    ownership: str,
-    installation: str,
-    executable: Path,
-    instruction: str | None,
 ) -> None:
-    """Validate a record-installation response against the requested state."""
+    """Validate a record-installation response."""
 
     if response.get("recorded") is not True:
         raise CondaError("Standalone conda executable did not record its installation.")
-    if response.get("ownership") != ownership:
-        raise CondaError("Standalone conda executable recorded the wrong ownership.")
-    if response.get("installation") != installation:
-        raise CondaError("Standalone conda executable recorded the wrong installation.")
-    response_executable = response.get("executable")
-    if not isinstance(response_executable, str) or Path(response_executable) != executable:
-        raise CondaError("Standalone conda executable recorded the wrong executable path.")
-    if response.get("instruction") != instruction:
-        raise CondaError("Standalone conda executable recorded the wrong update instruction.")
 
 
 def validate_check(

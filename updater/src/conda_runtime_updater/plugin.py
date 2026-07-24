@@ -91,18 +91,21 @@ def pre_solve(
             executable=detected.executable,
             instruction=detected.instruction,
         )
-        validate_record_installation(
-            recorded,
-            ownership="external",
-            installation=detected.name,
-            executable=detected.executable,
-            instruction=detected.instruction,
-        )
+        validate_record_installation(recorded)
         runtime = read_runtime_metadata(runtime.prefix, runtime.path)
-        if runtime is None:
+        if runtime is None or (
+            runtime.ownership,
+            runtime.installation,
+            runtime.executable,
+            runtime.instruction,
+        ) != (
+            "external",
+            detected.name,
+            detected.executable,
+            detected.instruction,
+        ):
             raise CondaError(
-                "Standalone conda executable removed its runtime record while recording "
-                "installation ownership."
+                "Standalone conda executable did not persist the detected installation."
             )
 
     lock = acquire_lock(runtime.lock_path)

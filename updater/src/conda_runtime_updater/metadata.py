@@ -132,11 +132,7 @@ def require_string(data: Mapping[str, Any], key: str, metadata_path: Path) -> st
 def valid_installation(value: object) -> bool:
     """Return whether a value is a version-one installation identifier."""
 
-    return (
-        isinstance(value, str)
-        and len(value) <= 64
-        and re.fullmatch(r"[a-z0-9][a-z0-9-]*", value) is not None
-    )
+    return isinstance(value, str) and bool(value.strip())
 
 
 def conda_version_from_runtime(version: str) -> str:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from dataclasses import replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -171,10 +172,21 @@ def test_runtime_discovery_rejects_invalid_version(tmp_path):
 def test_runtime_discovery_validates_installation_identifier(tmp_path):
     executable = tmp_path / "conda"
     executable.write_bytes(b"runtime")
-    write_metadata(tmp_path, executable, installation="Homebrew")
+    write_metadata(tmp_path, executable, installation=" ")
 
     with pytest.raises(CondaError, match="installation is invalid"):
         plugin.discover_runtime(tmp_path)
+
+
+def test_runtime_discovery_accepts_opaque_installation_identifier(tmp_path):
+    executable = tmp_path / "conda"
+    executable.write_bytes(b"runtime")
+    write_metadata(tmp_path, executable, installation="Downstream package manager")
+
+    runtime = plugin.discover_runtime(tmp_path)
+
+    assert runtime is not None
+    assert runtime.installation == "Downstream package manager"
 
 
 def test_runtime_pin_uses_conda_context(monkeypatch):
@@ -254,52 +266,56 @@ def test_no_outer_update_pins_current_runtime_version(monkeypatch, tmp_path, run
     plugin.release_lock(lock)
 
 
-def test_detected_installer_records_external_ownership_before_check(monkeypatch, tmp_path):
-    executable = tmp_path / "conda"
-    executable.write_bytes(b"runtime")
-    metadata_path = write_metadata(tmp_path, executable)
+def test_detected_installer_records_external_ownership_before_check(
+    monkeypatch,
+    tmp_path,
+    runtime,
+):
     instruction = (
         "This conda runtime is managed by pip. Run owner-python -m pip install --upgrade "
         "conda-runtime, then retry conda self update."
     )
+    external = replace(
+        runtime,
+        ownership="external",
+        installation="pip",
+        instruction=instruction,
+    )
     monkeypatch.setattr(plugin, "context", context_for(tmp_path))
+    monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: runtime)
     monkeypatch.setattr(
         plugin,
         "detect_external_installation",
         lambda _runtime: DetectedInstallation(
             name="pip",
-            executable=executable,
+            executable=runtime.executable,
             instruction=instruction,
         ),
     )
     actions = []
-    acquire_lock = plugin.acquire_lock
 
-    def acquire(path):
+    def read_runtime_metadata(prefix, path):
+        actions.append(("read-metadata", {"prefix": prefix, "path": path}))
+        return external
+
+    monkeypatch.setattr(plugin, "read_runtime_metadata", read_runtime_metadata)
+
+    def acquire(_path):
         actions.append(("acquire-lock", {}))
-        return acquire_lock(path)
+        return SimpleNamespace()
 
     monkeypatch.setattr(plugin, "acquire_lock", acquire)
+    monkeypatch.setattr(
+        plugin,
+        "release_lock",
+        lambda _lock: actions.append(("release-lock", {})),
+    )
 
-    def invoke(runtime, action, **kwargs):
+    def invoke(current, action, **kwargs):
         actions.append((action, kwargs))
         if action == "record-installation":
-            data = json.loads(metadata_path.read_text(encoding="utf-8"))
-            data["update"]["ownership"] = "external"
-            data["update"]["installation"] = "pip"
-            data["update"]["executable"] = str(executable)
-            data["update"]["instruction"] = instruction
-            metadata_path.write_text(json.dumps(data), encoding="utf-8")
-            return {
-                "recorded": True,
-                "ownership": "external",
-                "installation": "pip",
-                "executable": str(executable),
-                "instruction": instruction,
-            }
-        assert runtime.ownership == "external"
-        assert runtime.installation == "pip"
-        assert runtime.instruction == instruction
+            return {"recorded": True}
+        assert current is external
         return {
             "available": True,
             "ownership": "external",
@@ -321,19 +337,22 @@ def test_detected_installer_records_external_ownership_before_check(monkeypatch,
             {
                 "ownership": "external",
                 "installation": "pip",
-                "executable": executable,
+                "executable": runtime.executable,
                 "instruction": instruction,
+            },
+        ),
+        (
+            "read-metadata",
+            {
+                "prefix": runtime.prefix,
+                "path": runtime.path,
             },
         ),
         ("acquire-lock", {}),
         ("check", {}),
+        ("release-lock", {}),
     ]
     assert plugin._session is None
-    recorded = plugin.discover_runtime(tmp_path)
-    assert recorded is not None
-    assert recorded.ownership == "external"
-    assert recorded.installation == "pip"
-    assert recorded.instruction == instruction
 
 
 def test_invalid_candidate_version_fails_before_prompt_or_stage(monkeypatch, tmp_path, runtime):
@@ -456,7 +475,10 @@ def test_external_update_reports_instruction_without_staging(monkeypatch, tmp_pa
         lock_path=runtime.lock_path,
         ownership="external",
         installation="homebrew",
-        instruction=None,
+        instruction=(
+            "This conda runtime is managed by Homebrew. Run brew update && brew upgrade conda, "
+            "then retry conda self update."
+        ),
     )
     monkeypatch.setattr(plugin, "context", context_for(tmp_path))
     monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: external)
@@ -472,7 +494,7 @@ def test_external_update_reports_instruction_without_staging(monkeypatch, tmp_pa
             "available": True,
             "ownership": "external",
             "installation": "homebrew",
-            "instruction": None,
+            "instruction": external.instruction,
             "version": "26.5.4",
             "build_number": 0,
             "sha256": "a" * 64,
@@ -571,15 +593,7 @@ def test_record_installation_helper_sets_only_requested_fields(monkeypatch, runt
         captured.update(kwargs["env"])
         return SimpleNamespace(
             returncode=0,
-            stdout=json.dumps(
-                {
-                    "recorded": True,
-                    "ownership": "external",
-                    "installation": "homebrew",
-                    "executable": str(runtime.executable),
-                    "instruction": None,
-                }
-            ),
+            stdout=json.dumps({"recorded": True}),
             stderr="",
         )
 
@@ -592,13 +606,7 @@ def test_record_installation_helper_sets_only_requested_fields(monkeypatch, runt
         installation="homebrew",
         executable=runtime.executable,
     )
-    helper.validate_record_installation(
-        response,
-        ownership="external",
-        installation="homebrew",
-        executable=runtime.executable,
-        instruction=None,
-    )
+    helper.validate_record_installation(response)
 
     assert captured[helper.ACTION_ENV] == "v1/record-installation"
     assert captured[helper.OWNERSHIP_ENV] == "external"

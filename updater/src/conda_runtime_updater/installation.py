@@ -8,11 +8,10 @@ import hashlib
 import json
 import os
 import shlex
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
-from email.parser import Parser
+from importlib.metadata import Distribution
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -34,7 +33,7 @@ class DetectedInstallation:
 
     name: str
     executable: Path
-    instruction: str | None = None
+    instruction: str
 
 
 def detect_external_installation(runtime: RuntimeMetadata) -> DetectedInstallation | None:
@@ -62,33 +61,8 @@ def external_update_instruction(
 ) -> str:
     """Return the update instruction for an externally managed runtime."""
 
-    instructions = {
-        "homebrew": (
-            "This conda runtime is managed by Homebrew. Run brew update && brew upgrade conda, "
-            "then retry conda self update."
-        ),
-        "pipx": _pipx_update_instruction(global_install=False),
-        "uv-tool": (
-            "This conda runtime is managed as a uv tool. Run uv tool upgrade conda-runtime, "
-            "then retry conda self update."
-        ),
-        "pip": (
-            "This conda runtime was installed by pip. Update conda-runtime in the Python "
-            "environment that owns this executable, then retry conda self update."
-        ),
-        "uv-pip": (
-            "This conda runtime was installed by uv pip. Update conda-runtime in the Python "
-            "environment that owns this executable, then retry conda self update."
-        ),
-        "python": (
-            "This conda runtime is managed by a Python package manager. Update conda-runtime "
-            "with the Python package manager that installed it, then retry conda self update."
-        ),
-    }
     if runtime.instruction is not None:
         return runtime.instruction
-    if instruction := instructions.get(runtime.installation):
-        return instruction
     if compatibility_instruction is not None:
         return compatibility_instruction
     return (
@@ -111,7 +85,11 @@ def _detect_homebrew(resolved: Path) -> DetectedInstallation | None:
         prefix = directory.parent.parent.parent
         linked = prefix / "bin" / resolved.name
         if linked.is_symlink() and _resolve_file(linked) == resolved:
-            return DetectedInstallation(name="homebrew", executable=linked.absolute())
+            return DetectedInstallation(
+                name="homebrew",
+                executable=linked.absolute(),
+                instruction=_homebrew_update_instruction(),
+            )
 
         opt = prefix / "opt" / "conda"
         stable = opt / "bin" / resolved.name
@@ -120,7 +98,11 @@ def _detect_homebrew(resolved: Path) -> DetectedInstallation | None:
             and _resolve_directory(opt) == directory
             and _resolve_file(stable) == resolved
         ):
-            return DetectedInstallation(name="homebrew", executable=stable.absolute())
+            return DetectedInstallation(
+                name="homebrew",
+                executable=stable.absolute(),
+                instruction=_homebrew_update_instruction(),
+            )
     return None
 
 
@@ -171,7 +153,11 @@ def _uv_receipt_installation(
         executable = Path(install_path)
         if not executable.is_absolute() or _resolve_file(executable) != resolved:
             continue
-        return DetectedInstallation(name="uv-tool", executable=executable)
+        return DetectedInstallation(
+            name="uv-tool",
+            executable=executable,
+            instruction=_uv_tool_update_instruction(),
+        )
     return None
 
 
@@ -216,7 +202,12 @@ def _detect_reported_pipx(resolved: Path) -> DetectedInstallation | None:
     if data is None:
         return None
     stable = bin_dir / resolved.name
-    return _pipx_receipt_installation(data, resolved, stable=stable)
+    return _pipx_receipt_installation(
+        data,
+        resolved,
+        stable=stable,
+        instruction=_pipx_update_instruction(global_install=False),
+    )
 
 
 def _detect_global_pipx(resolved: Path) -> DetectedInstallation | None:
@@ -242,7 +233,7 @@ def _pipx_receipt_installation(
     resolved: Path,
     *,
     stable: Path | None = None,
-    instruction: str | None = None,
+    instruction: str,
 ) -> DetectedInstallation | None:
     main_package = data.get("main_package")
     if not isinstance(main_package, dict):
@@ -316,12 +307,17 @@ def _detect_python_wheel(
 ) -> DetectedInstallation | None:
     for site_packages in _site_package_directories(recorded, resolved):
         for dist_info in site_packages.glob("conda_runtime-*.dist-info"):
-            if not _is_conda_runtime_dist_info(dist_info):
+            try:
+                distribution = Distribution.at(dist_info)
+                name = distribution.metadata.get("Name")
+                if not isinstance(name, str) or _distribution_name(name) != "conda-runtime":
+                    continue
+                executable = _distribution_executable(distribution, resolved)
+                if executable is None:
+                    continue
+                installer = distribution.read_text("INSTALLER")
+            except (OSError, UnicodeError, TypeError, ValueError, csv.Error):
                 continue
-            executable = _recorded_executable(dist_info / "RECORD", resolved)
-            if executable is None:
-                continue
-            installer = _read_text(dist_info / "INSTALLER")
             if installer is not None and installer.strip().casefold() == "uv":
                 name = "uv-pip"
             elif installer is not None and installer.strip().casefold() == "pip":
@@ -366,45 +362,29 @@ def _site_package_directories(recorded: Path, resolved: Path) -> Iterable[Path]:
             yield candidate
 
 
-def _is_conda_runtime_dist_info(dist_info: Path) -> bool:
-    metadata = _read_text(dist_info / "METADATA")
-    if metadata is None:
-        return False
-    try:
-        name = Parser().parsestr(metadata).get("Name")
-    except (TypeError, UnicodeError):
-        return False
-    return isinstance(name, str) and _distribution_name(name) == "conda-runtime"
-
-
-def _recorded_executable(record_path: Path, resolved: Path) -> Path | None:
-    try:
-        with record_path.open(encoding="utf-8", newline="") as stream:
-            rows = list(csv.reader(stream))
-    except (OSError, UnicodeError, csv.Error):
-        return None
-
-    site_packages = record_path.parent.parent
-    for row in rows:
-        if len(row) != 3:
+def _distribution_executable(
+    distribution: Distribution,
+    resolved: Path,
+) -> Path | None:
+    for package_path in distribution.files or ():
+        recorded_hash = package_path.hash
+        size = package_path.size
+        if recorded_hash is None or recorded_hash.mode != "sha256" or size is None:
             continue
-        relative_path, encoded_digest, size_text = row
-        if not encoded_digest.startswith("sha256=") or not size_text.isdecimal():
-            continue
-        executable = Path(os.path.normpath(site_packages / Path(relative_path)))
+        executable = Path(os.path.normpath(distribution.locate_file(package_path)))
         if _resolve_file(executable) != resolved:
             continue
         try:
-            if executable.stat().st_size != int(size_text):
+            if executable.stat().st_size != size:
                 continue
         except OSError:
             continue
         try:
-            digest = _sha256(executable)
+            actual_digest = _sha256(executable)
         except OSError:
             continue
-        actual = base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
-        if actual == encoded_digest.removeprefix("sha256="):
+        actual = base64.urlsafe_b64encode(actual_digest).rstrip(b"=").decode("ascii")
+        if actual == recorded_hash.value:
             return executable
     return None
 
@@ -422,13 +402,6 @@ def _read_json_mapping(path: Path) -> Mapping[str, Any] | None:
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
     return data if isinstance(data, dict) else None
-
-
-def _read_text(path: Path) -> str | None:
-    try:
-        return path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return None
 
 
 def _sha256(path: Path) -> bytes:
@@ -451,16 +424,14 @@ def _wheel_update_instruction(
     *,
     executable: Path,
     site_packages: Path,
-) -> str | None:
+) -> str:
     owner = _owning_python(executable, site_packages)
-    if owner is None:
-        return None
-    if installation == "pip":
+    if installation == "pip" and owner is not None:
         command = _display_command(
             [str(owner), "-m", "pip", "install", "--upgrade", "conda-runtime"]
         )
         manager = "pip"
-    elif installation == "uv-pip":
+    elif installation == "uv-pip" and owner is not None:
         command = _display_command(
             [
                 "uv",
@@ -474,9 +445,39 @@ def _wheel_update_instruction(
         )
         manager = "uv pip"
     else:
-        return None
+        return _generic_wheel_update_instruction(installation)
     return (
         f"This conda runtime is managed by {manager}. Run {command}, then retry conda self update."
+    )
+
+
+def _homebrew_update_instruction() -> str:
+    return (
+        "This conda runtime is managed by Homebrew. Run brew update && brew upgrade conda, "
+        "then retry conda self update."
+    )
+
+
+def _uv_tool_update_instruction() -> str:
+    return (
+        "This conda runtime is managed as a uv tool. Run uv tool upgrade conda-runtime, "
+        "then retry conda self update."
+    )
+
+
+def _generic_wheel_update_instruction(installation: str) -> str:
+    if installation == "pip":
+        manager = "pip"
+    elif installation == "uv-pip":
+        manager = "uv pip"
+    else:
+        return (
+            "This conda runtime is managed by a Python package manager. Update conda-runtime "
+            "with the Python package manager that installed it, then retry conda self update."
+        )
+    return (
+        f"This conda runtime was installed by {manager}. Update conda-runtime in the Python "
+        "environment that owns this executable, then retry conda self update."
     )
 
 
@@ -507,12 +508,9 @@ def _display_command(arguments: list[str]) -> str:
 
 
 def _reported_directory(*arguments: str) -> Path | None:
-    executable = shutil.which(arguments[0])
-    if executable is None:
-        return None
     try:
         result = subprocess.run(
-            [executable, *arguments[1:]],
+            arguments,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
