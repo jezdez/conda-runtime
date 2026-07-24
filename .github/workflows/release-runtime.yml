@@ -304,6 +304,8 @@ jobs:
           $Destination = Join-Path $InstallDir "conda.exe"
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "conda-runtime-installer-data"
           $env:CONDA_OFFLINE = "1"
+          $InstructionSentinel = "preserve the caller environment"
+          $env:CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION = $InstructionSentinel
 
           function Invoke-WebRequest {
               param([switch] $UseBasicParsing, [uri] $Uri, [string] $OutFile)
@@ -316,6 +318,9 @@ jobs:
 
           & $Installer -InstallDir $InstallDir
 
+          if ($env:CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION -ne $InstructionSentinel) {
+              throw "Installer did not restore the caller environment"
+          }
           $AssetPath = Join-Path $env:RELEASE_ASSETS $env:ASSET_NAME
           $AssetChecksum = (Get-FileHash -Algorithm SHA256 -LiteralPath $AssetPath).Hash
           $InstalledChecksum = (
@@ -329,6 +334,7 @@ jobs:
           if (
               $Record.update.ownership -ne "direct" -or
               $Record.update.installation -ne "standalone" -or
+              $null -ne $Record.update.instruction -or
               [IO.Path]::GetFullPath($Record.update.executable) -ne $Destination
           ) {
               throw "Installer did not record the standalone installation"

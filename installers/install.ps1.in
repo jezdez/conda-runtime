@@ -70,7 +70,11 @@ try {
     $PreviousUpdateEnvironment = @{}
     foreach ($Name in $UpdateEnvironment.Keys) {
         $PreviousUpdateEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name)
-        [Environment]::SetEnvironmentVariable($Name, $UpdateEnvironment[$Name])
+        if ($null -eq $UpdateEnvironment[$Name]) {
+            Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue
+        } else {
+            [Environment]::SetEnvironmentVariable($Name, $UpdateEnvironment[$Name])
+        }
     }
     try {
         & $Destination | Out-Null
@@ -82,7 +86,11 @@ try {
         throw
     } finally {
         foreach ($Name in $PreviousUpdateEnvironment.Keys) {
-            [Environment]::SetEnvironmentVariable($Name, $PreviousUpdateEnvironment[$Name])
+            if ($null -eq $PreviousUpdateEnvironment[$Name]) {
+                Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue
+            } else {
+                [Environment]::SetEnvironmentVariable($Name, $PreviousUpdateEnvironment[$Name])
+            }
         }
     }
 
