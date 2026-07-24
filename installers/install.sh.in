@@ -133,6 +133,19 @@ if [ -e "$install_temporary" ]; then
 fi
 install_temporary=
 
+if ! (
+    unset CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION
+    CONDA_SHIP_INTERNAL_UPDATE="v1/record-installation" \
+        CONDA_SHIP_INTERNAL_UPDATE_OWNERSHIP="direct" \
+        CONDA_SHIP_INTERNAL_UPDATE_INSTALLATION="standalone" \
+        CONDA_SHIP_INTERNAL_UPDATE_EXECUTABLE="$destination" \
+        "$destination" >/dev/null
+); then
+    rm -f "$destination"
+    echo "The conda runtime could not record the standalone installation." >&2
+    exit 1
+fi
+
 echo "Installed conda ${version} to ${destination}"
 resolved_conda=$(command -v conda 2>/dev/null || true)
 if [ -z "$resolved_conda" ]; then

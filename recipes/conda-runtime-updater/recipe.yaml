@@ -23,12 +23,14 @@ requirements:
   run:
     - python >=${{ python_min }}
     - conda >=26.1.1
+    - tomli >=2
 
 tests:
   - python:
       imports:
         - conda_runtime_updater
         - conda_runtime_updater.helper
+        - conda_runtime_updater.installation
         - conda_runtime_updater.locking
         - conda_runtime_updater.metadata
         - conda_runtime_updater.plugin

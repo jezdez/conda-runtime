@@ -49,7 +49,7 @@ Create an unprefixed tag that exactly matches `runtime-version`, such as
 `26.5.3` or `26.5.3.post1`.
 
 The workflow uses the conda-ship action and release assets from exactly 0.6.4.
-It builds these five directly managed variants:
+It builds one canonical executable for each of these five targets:
 
 | Conda subdirectory | Runner | Runtime target |
 | --- | --- | --- |
@@ -65,11 +65,10 @@ identity, extracts the sole payload, and compares its size and SHA-256 digest
 with the finalized executable. The tag build attests executables and native
 update packages.
 
-The GitHub release assets use direct ownership. Their installers refuse to
-replace an existing executable because direct runtime updates are coordinated
-through `conda self update`. Future Homebrew or PyPI artifacts must be built
-separately with external ownership and their package-manager update
-instruction.
+The GitHub installers record direct ownership after installing the canonical
+executable. Homebrew and Python packages distribute the same executable bytes.
+`conda-runtime-updater` recognizes their existing package-manager receipts,
+records external ownership, and reports the corresponding upgrade command.
 
 ## Publication order
 

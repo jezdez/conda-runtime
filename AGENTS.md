@@ -8,6 +8,8 @@
   - `plugin.py` owns hook registration, trigger policy, prompting, and the
     transaction session lifecycle.
   - `metadata.py` discovers and validates `.<runtime>.json`.
+  - `installation.py` validates supported package-manager receipts and selects
+    external update instructions.
   - `helper.py` invokes and validates the stamped executable's version-one
     update helper.
   - `locking.py` owns cross-platform transaction locking.
@@ -77,8 +79,11 @@
   and `conda_pre_solves` and `conda_post_commands` hooks.
 - Coordinate only root-prefix solves that request `conda` or a root
   update-all operation. Never affect non-root environments.
-- Discover delivery metadata only from the runtime's `.<runtime>.json` record.
-  Do not add another receipt, service, daemon, or installer-detection layer.
+- Keep installed ownership in the runtime's `.<runtime>.json` record. Supported
+  external package managers may be identified from receipts they already own.
+  Do not create another receipt, service, or daemon.
+- Installer detection can change direct ownership to external ownership. It
+  must never infer direct ownership from the absence of an external receipt.
 - Ignore runtime records whose delegate is not `conda`.
 - Conda plugin settings in `.condarc` belong under `plugins`. Protect the
   updater as `plugins.self_permanent_packages`.
@@ -156,9 +161,10 @@
   last so installed runtimes cannot discover an incomplete release.
 - Preserve platform subdirectories while collecting native transport packages.
   Their basenames can be identical across conda subdirectories.
-- Homebrew and PyPI builds use external ownership and provider-specific update
-  instructions. They must not overwrite or impersonate the directly managed
-  executable variant.
+- Publish one identical executable per platform. Homebrew and Python installers
+  establish external ownership from their existing package-manager receipts.
+- Keep provider-specific update instructions in `conda-runtime-updater`, not in
+  separately stamped executable variants.
 
 ## Pull requests and issues
 

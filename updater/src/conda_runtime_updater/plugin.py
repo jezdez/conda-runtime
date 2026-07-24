@@ -16,9 +16,10 @@ from conda.models.match_spec import MatchSpec
 from conda.plugins.types import CondaPostCommand, CondaPreSolve
 from conda.reporters import confirm_yn
 
-from .helper import invoke_helper, validate_check
+from .helper import invoke_helper, validate_check, validate_record_installation
+from .installation import detect_external_installation, external_update_instruction
 from .locking import acquire_lock, release_lock
-from .metadata import conda_version_from_runtime, discover_runtime
+from .metadata import conda_version_from_runtime, discover_runtime, read_runtime_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -76,6 +77,34 @@ def pre_solve(
         pin_runtime_conda(runtime.version)
         return
 
+    detected = (
+        detect_external_installation(runtime)
+        if runtime.ownership != "external" or runtime.installation is None
+        else None
+    )
+    if detected is not None:
+        recorded = invoke_helper(
+            runtime,
+            "record-installation",
+            ownership="external",
+            installation=detected.name,
+            executable=detected.executable,
+            instruction=detected.instruction,
+        )
+        validate_record_installation(
+            recorded,
+            ownership="external",
+            installation=detected.name,
+            executable=detected.executable,
+            instruction=detected.instruction,
+        )
+        runtime = read_runtime_metadata(runtime.prefix, runtime.path)
+        if runtime is None:
+            raise CondaError(
+                "Standalone conda executable removed its runtime record while recording "
+                "installation ownership."
+            )
+
     lock = acquire_lock(runtime.lock_path)
     try:
         result = invoke_helper(runtime, "check")
@@ -87,15 +116,12 @@ def pre_solve(
         candidate_version = check["version"]
         conda_version_from_runtime(candidate_version)
         if runtime.ownership == "external":
-            instruction = (
-                check["instruction"]
-                or runtime.instruction
-                or (
-                    "Update the conda executable with the package manager that installed it, "
-                    "then retry."
+            raise CondaError(
+                external_update_instruction(
+                    runtime,
+                    compatibility_instruction=check["instruction"],
                 )
             )
-            raise CondaError(instruction)
 
         if not context.json:
             try:

@@ -38,8 +38,8 @@ refuse to replace an existing executable. Update a directly installed runtime
 with `conda self update`. To recover a damaged executable, move it aside and
 use the installer from that same runtime release.
 
-The first invocation bootstraps a separate managed prefix in the platform's
-user-data directory:
+The installer bootstraps a separate managed prefix in the platform's user-data
+directory:
 
 - Linux: `$XDG_DATA_HOME/conda/runtime`, or
   `~/.local/share/conda/runtime` when `XDG_DATA_HOME` is unset
