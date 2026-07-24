@@ -303,6 +303,7 @@ jobs:
           $InstallDir = Join-Path $env:RUNNER_TEMP "conda-runtime-installer-bin"
           $Destination = Join-Path $InstallDir "conda.exe"
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "conda-runtime-installer-data"
+          $env:CONDA_SHIP_PREFIX = Join-Path $env:RUNNER_TEMP "conda-runtime-installer-prefix"
           $env:CONDA_OFFLINE = "1"
           $InstructionSentinel = "preserve the caller environment"
           $env:CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION = $InstructionSentinel
@@ -329,7 +330,7 @@ jobs:
           if ($InstalledChecksum -ne $AssetChecksum) {
               throw "Installed executable does not match the candidate asset"
           }
-          $RecordPath = Join-Path $env:LOCALAPPDATA "conda\runtime\.conda.json"
+          $RecordPath = Join-Path $env:CONDA_SHIP_PREFIX ".conda.json"
           $Record = Get-Content -Raw -LiteralPath $RecordPath | ConvertFrom-Json
           if (
               $Record.update.ownership -ne "direct" -or
