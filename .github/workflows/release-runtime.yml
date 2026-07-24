@@ -90,11 +90,11 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
-      - name: Build with conda-ship 0.6.4
+      - name: Build with conda-ship 0.7.0
         id: ship
-        uses: jezdez/conda-ship@ea711a91f22bd5cf006cbd9254609aa8d3fd0e72 # 0.6.4
+        uses: jezdez/conda-ship@b1eac5dfcc9e0403f29f416bc2084d00fca5974f # 0.7.0
         with:
-          conda-ship-version: "0.6.4"
+          conda-ship-version: "0.7.0"
           root: runtime
 
       - name: Stage executable
@@ -387,11 +387,11 @@ jobs:
             --work "${RUNNER_TEMP}/conda-runtime-e2e" \
             --platform "$SUBDIR"
 
-      - name: Build generation 1 with conda-ship 0.6.4
+      - name: Build generation 1 with conda-ship 0.7.0
         id: ship
-        uses: jezdez/conda-ship@ea711a91f22bd5cf006cbd9254609aa8d3fd0e72 # 0.6.4
+        uses: jezdez/conda-ship@b1eac5dfcc9e0403f29f416bc2084d00fca5974f # 0.7.0
         with:
-          conda-ship-version: "0.6.4"
+          conda-ship-version: "0.7.0"
           root: ${{ runner.temp }}/conda-runtime-e2e/gen1
 
       - name: Prove the two-layer update
