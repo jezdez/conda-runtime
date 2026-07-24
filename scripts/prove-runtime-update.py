@@ -230,30 +230,6 @@ def rewrite_condarc(condarc_path: Path, channel_uri: str) -> None:
         yaml.dump(data, stream)
 
 
-def rewrite_external_ownership(manifest_path: Path) -> None:
-    lines = manifest_path.read_text(encoding="utf-8").splitlines(keepends=True)
-    section = ""
-    replaced_ownership = False
-    rendered = []
-    for line in lines:
-        match = re.match(r"^\s*\[([^]]+)]\s*$", line)
-        if match:
-            section = match.group(1)
-        if section == "tool.conda-ship.update" and re.match(r"^\s*ownership\s*=", line):
-            newline = "\n" if line.endswith("\n") else ""
-            line = f'ownership = "external"{newline}'
-            replaced_ownership = True
-        rendered.append(line)
-    if not replaced_ownership:
-        raise RuntimeError(f"runtime ownership field is missing from {manifest_path}")
-    if rendered and not rendered[-1].endswith("\n"):
-        rendered[-1] += "\n"
-    rendered.append(
-        'instruction = "Replace the executable with the package manager that installed it."\n'
-    )
-    manifest_path.write_text("".join(rendered), encoding="utf-8")
-
-
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -472,13 +448,7 @@ def build_runtime(
     return RuntimeBuild(binary=binary, info=info_paths[0])
 
 
-def build_external_root(source: Path, destination: Path) -> Path:
-    shutil.copytree(source, destination)
-    rewrite_external_ownership(destination / "conda.toml")
-    return destination
-
-
-def package_direct_update(
+def package_update(
     cs_path: Path, build: RuntimeBuild, out_dir: Path, channel_uri: str
 ) -> None:
     run(
@@ -675,13 +645,20 @@ def verify_identity(
         )
 
 
-def verify_outer_identity(scenario: Scenario, version: str, ownership: str) -> None:
+def verify_outer_identity(
+    scenario: Scenario,
+    version: str,
+    ownership: str,
+    *,
+    installation: str | None = None,
+) -> None:
     record = runtime_record(scenario.prefix)
     update = require_mapping(record.get("update"), "runtime update metadata")
     executable = update.get("executable")
     if (
         record.get("version") != version
         or update.get("ownership") != ownership
+        or (installation is not None and update.get("installation") != installation)
         or update.get("sha256") != sha256(scenario.stable)
         or not isinstance(executable, str)
         or Path(executable).resolve() != scenario.stable.resolve()
@@ -689,6 +666,26 @@ def verify_outer_identity(scenario: Scenario, version: str, ownership: str) -> N
         raise RuntimeError(
             f"runtime metadata does not match {ownership} outer executable {version}"
         )
+
+
+def record_external_installation(scenario: Scenario) -> None:
+    env = runtime_environment(scenario)
+    env.update(
+        {
+            "CONDA_SHIP_INTERNAL_UPDATE": "v1/record-installation",
+            "CONDA_SHIP_INTERNAL_UPDATE_OWNERSHIP": "external",
+            "CONDA_SHIP_INTERNAL_UPDATE_INSTALLATION": "proof",
+            "CONDA_SHIP_INTERNAL_UPDATE_EXECUTABLE": str(scenario.stable),
+            "CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION": (
+                "Replace the executable with the proof package manager, "
+                "then retry conda self update."
+            ),
+        }
+    )
+    result = run([scenario.stable], env=env)
+    response = require_mapping(json.loads(result.stdout), "record-installation response")
+    if response.get("recorded") is not True:
+        raise RuntimeError("runtime did not record the external installation")
 
 
 def poll_sha256(path: Path, expected: str, timeout: int = 60) -> None:
@@ -845,14 +842,38 @@ def prove_direct_update(
 
 def prove_external_reconciliation(
     scenario: Scenario,
-    external_gen2: Path,
+    gen2_binary: Path,
     gen1: GenerationVersions,
     gen2: GenerationVersions,
 ) -> None:
     verify_conda_version(scenario, gen1.conda)
-    verify_outer_identity(scenario, gen1.runtime, "external")
-    replacement_sha256 = sha256(external_gen2)
-    replace_executable(external_gen2, scenario.stable)
+    record_external_installation(scenario)
+    verify_outer_identity(
+        scenario,
+        gen1.runtime,
+        "external",
+        installation="proof",
+    )
+    initial = snapshot(scenario)
+
+    blocked = runtime_run(
+        scenario,
+        ["self", "update", "--yes"],
+        check=False,
+    )
+    blocked_output = f"{blocked.stdout}\n{blocked.stderr}"
+    if (
+        blocked.returncode == 0
+        or "Replace the executable with the proof package manager" not in blocked_output
+    ):
+        raise RuntimeError(
+            "external update did not stop with its recorded instruction: "
+            f"exit code {blocked.returncode}\n{tail(blocked_output)}"
+        )
+    require_unchanged(initial, scenario, "blocked external update")
+
+    replacement_sha256 = sha256(gen2_binary)
+    replace_executable(gen2_binary, scenario.stable)
 
     result = runtime_run(scenario, ["--version"])
     if result.stdout.strip() != f"conda {gen1.conda}":
@@ -872,7 +893,12 @@ def prove_external_reconciliation(
     if sha256(scenario.stable) != replacement_sha256:
         raise RuntimeError("inner update replaced an externally owned executable")
     verify_conda_version(scenario, gen2.conda)
-    verify_outer_identity(scenario, gen2.runtime, "external")
+    verify_outer_identity(
+        scenario,
+        gen2.runtime,
+        "external",
+        installation="proof",
+    )
 
 
 def stage_outer_update(scenario: Scenario) -> tuple[RuntimeMetadata, BinaryIO]:
@@ -971,20 +997,12 @@ def full(args: argparse.Namespace) -> None:
     if proof.exists():
         raise RuntimeError(f"full proof output already exists: {proof}")
     proof.mkdir()
-    direct_gen2 = build_runtime(
-        cs_path, template, gen2_root, proof / "direct-gen2", args.platform
+    gen2_build = build_runtime(
+        cs_path, template, gen2_root, proof / "gen2", args.platform
     )
-    external_gen1_root = build_external_root(gen1_root, proof / "external-gen1-root")
-    external_gen2_root = build_external_root(gen2_root, proof / "external-gen2-root")
-    external_gen1 = build_runtime(
-        cs_path, template, external_gen1_root, proof / "external-gen1", args.platform
-    )
-    external_gen2 = build_runtime(
-        cs_path, template, external_gen2_root, proof / "external-gen2", args.platform
-    )
-    package_direct_update(
+    package_update(
         cs_path,
-        direct_gen2,
+        gen2_build,
         proof / "transport",
         channel_uri,
     )
@@ -992,16 +1010,16 @@ def full(args: argparse.Namespace) -> None:
     direct = new_scenario(proof / "direct", gen1_binary, args.platform)
     prove_direct_update(
         direct,
-        direct_gen2.binary,
+        gen2_build.binary,
         gen2_conda_archive,
         gen1_versions,
         gen2_versions,
     )
 
-    external = new_scenario(proof / "external", external_gen1.binary, args.platform)
+    external = new_scenario(proof / "external", gen1_binary, args.platform)
     prove_external_reconciliation(
         external,
-        external_gen2.binary,
+        gen2_build.binary,
         gen1_versions,
         gen2_versions,
     )
@@ -1010,7 +1028,7 @@ def full(args: argparse.Namespace) -> None:
         interrupted = new_scenario(proof / "interrupted", gen1_binary, args.platform)
         prove_unix_replacement_recovery(
             interrupted,
-            direct_gen2.binary,
+            gen2_build.binary,
             gen1_versions,
             gen2_versions,
         )

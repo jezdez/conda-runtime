@@ -258,6 +258,8 @@ jobs:
           mkdir -p "$fake_bin" "$install_dir"
           install_dir="$(CDPATH='' cd -P "$install_dir" && pwd)"
           destination="${install_dir}/conda"
+          export XDG_DATA_HOME="${RUNNER_TEMP}/conda-runtime-installer-data"
+          export CONDA_OFFLINE=1
 
           cat > "${fake_bin}/curl" <<'EOF'
           #!/bin/sh
@@ -271,6 +273,17 @@ jobs:
 
           sh "${RELEASE_ASSETS}/install.sh" "$install_dir"
           cmp "${RELEASE_ASSETS}/${ASSET_NAME}" "$destination"
+          python3 - "$XDG_DATA_HOME/conda/runtime/.conda.json" "$destination" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          record = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+          update = record["update"]
+          assert update["ownership"] == "direct"
+          assert update["installation"] == "standalone"
+          assert pathlib.Path(update["executable"]) == pathlib.Path(sys.argv[2])
+          PY
 
           if sh "${RELEASE_ASSETS}/install.sh" "$install_dir"; then
             echo "Installer replaced an existing executable." >&2
@@ -289,6 +302,8 @@ jobs:
           $Installer = Join-Path $env:RELEASE_ASSETS "install.ps1"
           $InstallDir = Join-Path $env:RUNNER_TEMP "conda-runtime-installer-bin"
           $Destination = Join-Path $InstallDir "conda.exe"
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP "conda-runtime-installer-data"
+          $env:CONDA_OFFLINE = "1"
 
           function Invoke-WebRequest {
               param([switch] $UseBasicParsing, [uri] $Uri, [string] $OutFile)
@@ -308,6 +323,15 @@ jobs:
           ).Hash
           if ($InstalledChecksum -ne $AssetChecksum) {
               throw "Installed executable does not match the candidate asset"
+          }
+          $RecordPath = Join-Path $env:LOCALAPPDATA "conda\runtime\.conda.json"
+          $Record = Get-Content -Raw -LiteralPath $RecordPath | ConvertFrom-Json
+          if (
+              $Record.update.ownership -ne "direct" -or
+              $Record.update.installation -ne "standalone" -or
+              [IO.Path]::GetFullPath($Record.update.executable) -ne $Destination
+          ) {
+              throw "Installer did not record the standalone installation"
           }
 
           try {

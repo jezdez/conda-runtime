@@ -77,8 +77,11 @@
   and `conda_pre_solves` and `conda_post_commands` hooks.
 - Coordinate only root-prefix solves that request `conda` or a root
   update-all operation. Never affect non-root environments.
-- Discover delivery metadata only from the runtime's `.<runtime>.json` record.
-  Do not add another receipt, service, daemon, or installer-detection layer.
+- Keep installed ownership in the runtime's `.<runtime>.json` record.
+  Delivery integrations may use receipts their package manager already owns.
+  Do not create another receipt, service, or daemon.
+- A delivery integration can change direct ownership to external ownership. It
+  must never infer direct ownership from the absence of a receipt.
 - Ignore runtime records whose delegate is not `conda`.
 - Conda plugin settings in `.condarc` belong under `plugins`. Protect the
   updater as `plugins.self_permanent_packages`.
@@ -156,9 +159,10 @@
   last so installed runtimes cannot discover an incomplete release.
 - Preserve platform subdirectories while collecting native transport packages.
   Their basenames can be identical across conda subdirectories.
-- Homebrew and PyPI builds use external ownership and provider-specific update
-  instructions. They must not overwrite or impersonate the directly managed
-  executable variant.
+- Publish one identical executable per platform. Homebrew and Python delivery
+  integrations establish external ownership without restamping it.
+- Keep provider-specific update instructions in `conda-runtime-updater`, not in
+  separately stamped executable variants.
 
 ## Pull requests and issues
 

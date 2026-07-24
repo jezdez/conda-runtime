@@ -60,6 +60,32 @@ try {
     Move-Item -LiteralPath $InstallTemporary -Destination $Destination
     $InstallTemporary = $null
 
+    $UpdateEnvironment = @{
+        CONDA_SHIP_INTERNAL_UPDATE = "v1/record-installation"
+        CONDA_SHIP_INTERNAL_UPDATE_OWNERSHIP = "direct"
+        CONDA_SHIP_INTERNAL_UPDATE_INSTALLATION = "standalone"
+        CONDA_SHIP_INTERNAL_UPDATE_EXECUTABLE = $Destination
+        CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION = $null
+    }
+    $PreviousUpdateEnvironment = @{}
+    foreach ($Name in $UpdateEnvironment.Keys) {
+        $PreviousUpdateEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name)
+        [Environment]::SetEnvironmentVariable($Name, $UpdateEnvironment[$Name])
+    }
+    try {
+        & $Destination | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "The conda runtime could not record the standalone installation"
+        }
+    } catch {
+        Remove-Item -Force -LiteralPath $Destination -ErrorAction SilentlyContinue
+        throw
+    } finally {
+        foreach ($Name in $PreviousUpdateEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($Name, $PreviousUpdateEnvironment[$Name])
+        }
+    }
+
     Write-Output "Installed conda $Version to $Destination"
     $ResolvedConda = Get-Command conda -CommandType Application -ErrorAction SilentlyContinue |
         Select-Object -First 1

@@ -32,4 +32,3 @@ freeze-base = true
 channel = "https://conda.anaconda.org/jezdez"
 package = "conda-runtime"
 build-number = 0
-ownership = "direct"

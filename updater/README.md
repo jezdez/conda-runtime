@@ -23,8 +23,9 @@ coordination. Dry runs read the local runtime record and apply its current
 conda pin without checking, staging, or locking an outer update.
 
 For an externally managed runtime, an available outer update stops the inner
-transaction and reports the instruction stamped by the distributor. The
-package manager can replace the executable before the conda update is retried.
+transaction and reports the instruction recorded by its delivery integration.
+The package manager can replace the executable before the conda update is
+retried.
 
 The plugin discovers update state only through the runtime's
 `.<runtime>.json` record. It invokes the stamped executable's version-one local
