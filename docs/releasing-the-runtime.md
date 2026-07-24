@@ -66,9 +66,9 @@ with the finalized executable. The tag build attests executables and native
 update packages.
 
 The GitHub installers record direct ownership after installing the canonical
-executable. Homebrew and Python packages distribute the same executable bytes.
-`conda-runtime-updater` recognizes their existing package-manager receipts,
-records external ownership, and reports the corresponding upgrade command.
+executable. Future Homebrew and Python packages can distribute the same
+executable bytes. Their delivery integrations must record external ownership
+and the corresponding upgrade instruction.
 
 ## Publication order
 

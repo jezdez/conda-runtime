@@ -60,35 +60,29 @@ try {
     Move-Item -LiteralPath $InstallTemporary -Destination $Destination
     $InstallTemporary = $null
 
-    $PreviousUpdateAction = $env:CONDA_SHIP_INTERNAL_UPDATE
-    $PreviousUpdateOwnership = $env:CONDA_SHIP_INTERNAL_UPDATE_OWNERSHIP
-    $PreviousUpdateInstallation = $env:CONDA_SHIP_INTERNAL_UPDATE_INSTALLATION
-    $PreviousUpdateExecutable = $env:CONDA_SHIP_INTERNAL_UPDATE_EXECUTABLE
-    $PreviousUpdateInstruction = $env:CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION
+    $UpdateEnvironment = @{
+        CONDA_SHIP_INTERNAL_UPDATE = "v1/record-installation"
+        CONDA_SHIP_INTERNAL_UPDATE_OWNERSHIP = "direct"
+        CONDA_SHIP_INTERNAL_UPDATE_INSTALLATION = "standalone"
+        CONDA_SHIP_INTERNAL_UPDATE_EXECUTABLE = $Destination
+        CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION = $null
+    }
+    $PreviousUpdateEnvironment = @{}
+    foreach ($Name in $UpdateEnvironment.Keys) {
+        $PreviousUpdateEnvironment[$Name] = [Environment]::GetEnvironmentVariable($Name)
+        [Environment]::SetEnvironmentVariable($Name, $UpdateEnvironment[$Name])
+    }
     try {
-        $env:CONDA_SHIP_INTERNAL_UPDATE = "v1/record-installation"
-        $env:CONDA_SHIP_INTERNAL_UPDATE_OWNERSHIP = "direct"
-        $env:CONDA_SHIP_INTERNAL_UPDATE_INSTALLATION = "standalone"
-        $env:CONDA_SHIP_INTERNAL_UPDATE_EXECUTABLE = $Destination
-        Remove-Item Env:CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION -ErrorAction SilentlyContinue
-        try {
-            & $Destination | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-                throw "The conda runtime could not record the standalone installation"
-            }
-        } catch {
-            Remove-Item -Force -LiteralPath $Destination -ErrorAction SilentlyContinue
-            throw
+        & $Destination | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw "The conda runtime could not record the standalone installation"
         }
+    } catch {
+        Remove-Item -Force -LiteralPath $Destination -ErrorAction SilentlyContinue
+        throw
     } finally {
-        $env:CONDA_SHIP_INTERNAL_UPDATE = $PreviousUpdateAction
-        $env:CONDA_SHIP_INTERNAL_UPDATE_OWNERSHIP = $PreviousUpdateOwnership
-        $env:CONDA_SHIP_INTERNAL_UPDATE_INSTALLATION = $PreviousUpdateInstallation
-        $env:CONDA_SHIP_INTERNAL_UPDATE_EXECUTABLE = $PreviousUpdateExecutable
-        if ($null -eq $PreviousUpdateInstruction) {
-            Remove-Item Env:CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION -ErrorAction SilentlyContinue
-        } else {
-            $env:CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION = $PreviousUpdateInstruction
+        foreach ($Name in $PreviousUpdateEnvironment.Keys) {
+            [Environment]::SetEnvironmentVariable($Name, $PreviousUpdateEnvironment[$Name])
         }
     }
 

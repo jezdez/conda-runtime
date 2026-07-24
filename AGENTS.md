@@ -8,8 +8,6 @@
   - `plugin.py` owns hook registration, trigger policy, prompting, and the
     transaction session lifecycle.
   - `metadata.py` discovers and validates `.<runtime>.json`.
-  - `installation.py` validates supported package-manager receipts and selects
-    external update instructions.
   - `helper.py` invokes and validates the stamped executable's version-one
     update helper.
   - `locking.py` owns cross-platform transaction locking.
@@ -79,11 +77,11 @@
   and `conda_pre_solves` and `conda_post_commands` hooks.
 - Coordinate only root-prefix solves that request `conda` or a root
   update-all operation. Never affect non-root environments.
-- Keep installed ownership in the runtime's `.<runtime>.json` record. Supported
-  external package managers may be identified from receipts they already own.
+- Keep installed ownership in the runtime's `.<runtime>.json` record.
+  Delivery integrations may use receipts their package manager already owns.
   Do not create another receipt, service, or daemon.
-- Installer detection can change direct ownership to external ownership. It
-  must never infer direct ownership from the absence of an external receipt.
+- A delivery integration can change direct ownership to external ownership. It
+  must never infer direct ownership from the absence of a receipt.
 - Ignore runtime records whose delegate is not `conda`.
 - Conda plugin settings in `.condarc` belong under `plugins`. Protect the
   updater as `plugins.self_permanent_packages`.
@@ -161,8 +159,8 @@
   last so installed runtimes cannot discover an incomplete release.
 - Preserve platform subdirectories while collecting native transport packages.
   Their basenames can be identical across conda subdirectories.
-- Publish one identical executable per platform. Homebrew and Python installers
-  establish external ownership from their existing package-manager receipts.
+- Publish one identical executable per platform. Homebrew and Python delivery
+  integrations establish external ownership without restamping it.
 - Keep provider-specific update instructions in `conda-runtime-updater`, not in
   separately stamped executable variants.
 

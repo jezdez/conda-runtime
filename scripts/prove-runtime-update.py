@@ -19,11 +19,7 @@ from typing import Any, BinaryIO
 from urllib.parse import unquote, urlsplit
 
 from conda.models.match_spec import MatchSpec
-from conda_runtime_updater.helper import (
-    invoke_helper,
-    validate_check,
-    validate_record_installation,
-)
+from conda_runtime_updater.helper import invoke_helper, validate_check
 from conda_runtime_updater.locking import acquire_lock, release_lock
 from conda_runtime_updater.metadata import RuntimeMetadata, discover_runtime
 from ruamel.yaml import YAML
@@ -673,28 +669,23 @@ def verify_outer_identity(
 
 
 def record_external_installation(scenario: Scenario) -> None:
-    runtime = discover_runtime(scenario.prefix)
-    if runtime is None:
-        raise RuntimeError("managed prefix has no discoverable runtime update metadata")
-    instruction = (
-        "Replace the executable with the proof package manager, then retry "
-        "conda self update."
+    env = runtime_environment(scenario)
+    env.update(
+        {
+            "CONDA_SHIP_INTERNAL_UPDATE": "v1/record-installation",
+            "CONDA_SHIP_INTERNAL_UPDATE_OWNERSHIP": "external",
+            "CONDA_SHIP_INTERNAL_UPDATE_INSTALLATION": "proof",
+            "CONDA_SHIP_INTERNAL_UPDATE_EXECUTABLE": str(scenario.stable),
+            "CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION": (
+                "Replace the executable with the proof package manager, "
+                "then retry conda self update."
+            ),
+        }
     )
-    response = invoke_helper(
-        runtime,
-        "record-installation",
-        ownership="external",
-        installation="proof",
-        executable=scenario.stable,
-        instruction=instruction,
-    )
-    validate_record_installation(
-        response,
-        ownership="external",
-        installation="proof",
-        executable=scenario.stable,
-        instruction=instruction,
-    )
+    result = run([scenario.stable], env=env)
+    response = require_mapping(json.loads(result.stdout), "record-installation response")
+    if response.get("recorded") is not True:
+        raise RuntimeError("runtime did not record the external installation")
 
 
 def poll_sha256(path: Path, expected: str, timeout: int = 60) -> None:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import replace
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
@@ -12,7 +11,6 @@ from conda.exceptions import CondaError, CondaSystemExit
 from conda.models.match_spec import MatchSpec
 
 from conda_runtime_updater import helper, plugin
-from conda_runtime_updater.installation import DetectedInstallation
 from conda_runtime_updater.metadata import RuntimeMetadata
 
 if TYPE_CHECKING:
@@ -41,7 +39,6 @@ def runtime(tmp_path: Path) -> RuntimeMetadata:
         executable=executable,
         lock_path=lock_path,
         ownership="direct",
-        installation=None,
         instruction=None,
     )
 
@@ -70,7 +67,6 @@ def write_metadata(
     delegate: str = "conda",
     ownership: str = "direct",
     instruction: str | None = None,
-    installation: str | None = None,
     version: str = "26.5.3",
 ) -> Path:
     path = prefix / f".{name}.json"
@@ -85,8 +81,6 @@ def write_metadata(
     }
     if instruction is not None:
         update["instruction"] = instruction
-    if installation is not None:
-        update["installation"] = installation
     path.write_text(
         json.dumps(
             {
@@ -139,7 +133,6 @@ def test_discovers_one_valid_runtime_record(tmp_path):
     assert runtime.version == "26.5.3"
     assert runtime.executable == executable
     assert runtime.ownership == "direct"
-    assert runtime.installation is None
 
 
 def test_runtime_discovery_fails_closed_on_ambiguity(tmp_path):
@@ -167,26 +160,6 @@ def test_runtime_discovery_rejects_invalid_version(tmp_path):
 
     with pytest.raises(CondaError, match="runtime version is invalid"):
         plugin.discover_runtime(tmp_path)
-
-
-def test_runtime_discovery_validates_installation_identifier(tmp_path):
-    executable = tmp_path / "conda"
-    executable.write_bytes(b"runtime")
-    write_metadata(tmp_path, executable, installation=" ")
-
-    with pytest.raises(CondaError, match="installation is invalid"):
-        plugin.discover_runtime(tmp_path)
-
-
-def test_runtime_discovery_accepts_opaque_installation_identifier(tmp_path):
-    executable = tmp_path / "conda"
-    executable.write_bytes(b"runtime")
-    write_metadata(tmp_path, executable, installation="Downstream package manager")
-
-    runtime = plugin.discover_runtime(tmp_path)
-
-    assert runtime is not None
-    assert runtime.installation == "Downstream package manager"
 
 
 def test_runtime_pin_uses_conda_context(monkeypatch):
@@ -264,95 +237,6 @@ def test_no_outer_update_pins_current_runtime_version(monkeypatch, tmp_path, run
     assert conda_context.pinned_packages == ("python 3.12.*", "conda ==26.5.3")
     lock = plugin.acquire_lock(runtime.lock_path)
     plugin.release_lock(lock)
-
-
-def test_detected_installer_records_external_ownership_before_check(
-    monkeypatch,
-    tmp_path,
-    runtime,
-):
-    instruction = (
-        "This conda runtime is managed by pip. Run owner-python -m pip install --upgrade "
-        "conda-runtime, then retry conda self update."
-    )
-    external = replace(
-        runtime,
-        ownership="external",
-        installation="pip",
-        instruction=instruction,
-    )
-    monkeypatch.setattr(plugin, "context", context_for(tmp_path))
-    monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: runtime)
-    monkeypatch.setattr(
-        plugin,
-        "detect_external_installation",
-        lambda _runtime: DetectedInstallation(
-            name="pip",
-            executable=runtime.executable,
-            instruction=instruction,
-        ),
-    )
-    actions = []
-
-    def read_runtime_metadata(prefix, path):
-        actions.append(("read-metadata", {"prefix": prefix, "path": path}))
-        return external
-
-    monkeypatch.setattr(plugin, "read_runtime_metadata", read_runtime_metadata)
-
-    def acquire(_path):
-        actions.append(("acquire-lock", {}))
-        return SimpleNamespace()
-
-    monkeypatch.setattr(plugin, "acquire_lock", acquire)
-    monkeypatch.setattr(
-        plugin,
-        "release_lock",
-        lambda _lock: actions.append(("release-lock", {})),
-    )
-
-    def invoke(current, action, **kwargs):
-        actions.append((action, kwargs))
-        if action == "record-installation":
-            return {"recorded": True}
-        assert current is external
-        return {
-            "available": True,
-            "ownership": "external",
-            "installation": "pip",
-            "instruction": instruction,
-            "version": "26.5.4",
-            "build_number": 0,
-            "sha256": "a" * 64,
-        }
-
-    monkeypatch.setattr(plugin, "invoke_helper", invoke)
-
-    with pytest.raises(CondaError, match="owner-python"):
-        plugin.pre_solve(frozenset({MatchSpec("conda")}), frozenset())
-
-    assert actions == [
-        (
-            "record-installation",
-            {
-                "ownership": "external",
-                "installation": "pip",
-                "executable": runtime.executable,
-                "instruction": instruction,
-            },
-        ),
-        (
-            "read-metadata",
-            {
-                "prefix": runtime.prefix,
-                "path": runtime.path,
-            },
-        ),
-        ("acquire-lock", {}),
-        ("check", {}),
-        ("release-lock", {}),
-    ]
-    assert plugin._session is None
 
 
 def test_invalid_candidate_version_fails_before_prompt_or_stage(monkeypatch, tmp_path, runtime):
@@ -474,37 +358,24 @@ def test_external_update_reports_instruction_without_staging(monkeypatch, tmp_pa
         executable=runtime.executable,
         lock_path=runtime.lock_path,
         ownership="external",
-        installation="homebrew",
-        instruction=(
-            "This conda runtime is managed by Homebrew. Run brew update && brew upgrade conda, "
-            "then retry conda self update."
-        ),
+        instruction="old external instruction",
     )
     monkeypatch.setattr(plugin, "context", context_for(tmp_path))
     monkeypatch.setattr(plugin, "discover_runtime", lambda _prefix: external)
-    monkeypatch.setattr(
-        plugin,
-        "detect_external_installation",
-        lambda _runtime: pytest.fail("classified external runtime was detected again"),
-    )
     monkeypatch.setattr(
         plugin,
         "invoke_helper",
         lambda *_args, **_kwargs: {
             "available": True,
             "ownership": "external",
-            "installation": "homebrew",
-            "instruction": external.instruction,
+            "instruction": "brew update && brew upgrade conda",
             "version": "26.5.4",
             "build_number": 0,
             "sha256": "a" * 64,
         },
     )
 
-    with pytest.raises(
-        CondaError,
-        match=r"brew update && brew upgrade conda, then retry conda self update",
-    ):
+    with pytest.raises(CondaError, match="brew update"):
         plugin.pre_solve(frozenset({MatchSpec("conda")}), frozenset())
 
     assert plugin._session is None
@@ -583,36 +454,6 @@ def test_helper_process_failures_are_conda_errors(monkeypatch, runtime, error, m
 
     with pytest.raises(CondaError, match=message):
         helper.invoke_helper(runtime, "check")
-
-
-def test_record_installation_helper_sets_only_requested_fields(monkeypatch, runtime):
-    monkeypatch.setattr(helper, "context", SimpleNamespace(offline=False))
-    captured = {}
-
-    def run(_arguments, **kwargs):
-        captured.update(kwargs["env"])
-        return SimpleNamespace(
-            returncode=0,
-            stdout=json.dumps({"recorded": True}),
-            stderr="",
-        )
-
-    monkeypatch.setattr(helper.subprocess, "run", run)
-
-    response = helper.invoke_helper(
-        runtime,
-        "record-installation",
-        ownership="external",
-        installation="homebrew",
-        executable=runtime.executable,
-    )
-    helper.validate_record_installation(response)
-
-    assert captured[helper.ACTION_ENV] == "v1/record-installation"
-    assert captured[helper.OWNERSHIP_ENV] == "external"
-    assert captured[helper.INSTALLATION_ENV] == "homebrew"
-    assert captured[helper.EXECUTABLE_ENV] == str(runtime.executable)
-    assert helper.INSTRUCTION_ENV not in captured
 
 
 def test_hook_registration_covers_root_solve_commands():

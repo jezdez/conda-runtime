@@ -24,7 +24,6 @@ class RuntimeMetadata:
     executable: Path
     lock_path: Path
     ownership: str
-    installation: str | None
     instruction: str | None
 
 
@@ -89,9 +88,6 @@ def read_runtime_metadata(prefix: Path, metadata_path: Path) -> RuntimeMetadata 
         raise CondaError(
             f"A directly managed runtime cannot have an external instruction: {metadata_path}"
         )
-    installation = update.get("installation")
-    if installation is not None and not valid_installation(installation):
-        raise CondaError(f"Runtime update installation is invalid: {metadata_path}")
 
     executable = Path(require_string(update, "executable", metadata_path))
     if not executable.is_absolute() or not executable.is_file():
@@ -117,7 +113,6 @@ def read_runtime_metadata(prefix: Path, metadata_path: Path) -> RuntimeMetadata 
         executable=executable,
         lock_path=lock_path,
         ownership=ownership,
-        installation=installation,
         instruction=instruction,
     )
 
@@ -127,12 +122,6 @@ def require_string(data: Mapping[str, Any], key: str, metadata_path: Path) -> st
     if not isinstance(value, str) or not value:
         raise CondaError(f"Runtime update field {key!r} is invalid: {metadata_path}")
     return value
-
-
-def valid_installation(value: object) -> bool:
-    """Return whether a value is a version-one installation identifier."""
-
-    return isinstance(value, str) and bool(value.strip())
 
 
 def conda_version_from_runtime(version: str) -> str:

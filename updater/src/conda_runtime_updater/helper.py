@@ -10,10 +10,7 @@ from typing import TYPE_CHECKING
 from conda.base.context import context
 from conda.exceptions import CondaError
 
-from .metadata import valid_installation
-
 if TYPE_CHECKING:
-    from pathlib import Path
     from typing import Any
 
     from .metadata import RuntimeMetadata
@@ -21,10 +18,6 @@ if TYPE_CHECKING:
 ACTION_ENV = "CONDA_SHIP_INTERNAL_UPDATE"
 CANDIDATE_ENV = "CONDA_SHIP_INTERNAL_UPDATE_CANDIDATE"
 OFFLINE_ENV = "CONDA_SHIP_INTERNAL_UPDATE_OFFLINE"
-OWNERSHIP_ENV = "CONDA_SHIP_INTERNAL_UPDATE_OWNERSHIP"
-INSTALLATION_ENV = "CONDA_SHIP_INTERNAL_UPDATE_INSTALLATION"
-EXECUTABLE_ENV = "CONDA_SHIP_INTERNAL_UPDATE_EXECUTABLE"
-INSTRUCTION_ENV = "CONDA_SHIP_INTERNAL_UPDATE_INSTRUCTION"
 PREFIX_ENV = "CONDA_SHIP_PREFIX"
 
 
@@ -33,10 +26,6 @@ def invoke_helper(
     action: str,
     *,
     candidate: str | None = None,
-    ownership: str | None = None,
-    installation: str | None = None,
-    executable: Path | None = None,
-    instruction: str | None = None,
 ) -> dict[str, Any]:
     """Invoke one version-one action on the stamped outer executable."""
 
@@ -45,20 +34,8 @@ def invoke_helper(
     env[ACTION_ENV] = f"v1/{action}"
     env.pop(CANDIDATE_ENV, None)
     env.pop(OFFLINE_ENV, None)
-    env.pop(OWNERSHIP_ENV, None)
-    env.pop(INSTALLATION_ENV, None)
-    env.pop(EXECUTABLE_ENV, None)
-    env.pop(INSTRUCTION_ENV, None)
     if candidate is not None:
         env[CANDIDATE_ENV] = candidate
-    if ownership is not None:
-        env[OWNERSHIP_ENV] = ownership
-    if installation is not None:
-        env[INSTALLATION_ENV] = installation
-    if executable is not None:
-        env[EXECUTABLE_ENV] = str(executable)
-    if instruction is not None:
-        env[INSTRUCTION_ENV] = instruction
     if context.offline:
         env[OFFLINE_ENV] = "1"
 
@@ -91,15 +68,6 @@ def invoke_helper(
     return response
 
 
-def validate_record_installation(
-    response: dict[str, Any],
-) -> None:
-    """Validate a record-installation response."""
-
-    if response.get("recorded") is not True:
-        raise CondaError("Standalone conda executable did not record its installation.")
-
-
 def validate_check(
     response: dict[str, Any],
     runtime: RuntimeMetadata,
@@ -110,13 +78,6 @@ def validate_check(
         raise CondaError("Standalone conda executable check omitted update availability.")
     if response.get("ownership") != runtime.ownership:
         raise CondaError("Standalone conda executable ownership changed during the update check.")
-    installation = response.get("installation")
-    if installation is not None and not valid_installation(installation):
-        raise CondaError("Standalone conda executable check returned an invalid installation.")
-    if runtime.installation is not None and installation != runtime.installation:
-        raise CondaError(
-            "Standalone conda executable installation changed during the update check."
-        )
     if not response["available"]:
         return response
 
