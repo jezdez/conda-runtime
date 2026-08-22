@@ -18,7 +18,7 @@ SPEC.loader.exec_module(release_packages)
 def runtime_package(
     tmp_path: Path,
     subdir: str = "linux-64",
-    version: str = "26.7.1",
+    version: str = "26.7.1.post1",
 ):
     path = tmp_path / subdir / f"conda-runtime-{version}-0.conda"
     path.parent.mkdir(parents=True)

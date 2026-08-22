@@ -26,10 +26,11 @@ that would be tagged:
 gh workflow run release-runtime.yml --ref main
 ```
 
-The manual run builds all five native executables and update packages, checks
-the complete distribution, and runs the two-layer update proof on Linux,
-macOS, and Windows. It does not create a GitHub release or upload to
-Anaconda.org. It does not access release credentials or publish attestations.
+The manual run builds all five native executables, their platform-specific
+SBOMs, and update packages. It checks the complete distribution and runs the
+two-layer update proof on Linux, macOS, and Windows. It does not create a GitHub
+release or upload to Anaconda.org. It does not access release credentials or
+publish attestations.
 
 The two-layer proof uses a temporary `file://` channel, so its executables are
 stamped for that channel. Conda-ship rejects an executable from a different
@@ -46,7 +47,7 @@ publish anything.
 ## Create the release
 
 Create an unprefixed tag that exactly matches `runtime-version`, such as
-`26.7.1` or `26.7.1.post1`.
+`26.7.1.post1` or `26.7.1.post2`.
 
 The workflow uses the conda-ship action and release assets from exactly 0.8.0.
 It builds one canonical executable for each of these five targets:
@@ -62,8 +63,18 @@ It builds one canonical executable for each of these five targets:
 Each job bootstraps its executable once, then packages those exact executable
 bytes with `cs package-update`. The package verifier checks the native package
 identity, extracts the sole payload, and compares its size and SHA-256 digest
-with the finalized executable. The tag build attests executables and native
-update packages.
+with the finalized executable.
+
+Conda-ship also creates a CycloneDX 1.7 SBOM for every executable. Each SBOM
+describes the resolved conda packages, package hashes and locations, available
+license data, and known dependency relationships. The release verifier checks
+the runtime version, target platform, executable name, nonempty package graph,
+and explicit incomplete-coverage marker. The tag build separately attests each
+executable, SBOM, and native update package.
+
+The SBOM does not claim to inventory the host operating system, Rust crates in
+the outer executable, or other vendored or statically linked code outside the
+resolved conda package records.
 
 The GitHub installers record direct ownership after installing the canonical
 executable. Future Homebrew and Python packages can distribute the same
@@ -72,12 +83,13 @@ and the corresponding upgrade instruction.
 
 ## Publication order
 
-The workflow passes the five executables, installer scripts, and their attested
-`SHA256SUMS` to `gh release create`. GitHub CLI creates a draft, uploads every
-asset, and publishes the release before immutability takes effect. An upload
-failure removes the unfinished draft. A separate restartable job verifies the
-release attestation and every local asset. The workflow refuses to replace an
-existing release. Immutable releases must be enabled for this repository.
+The workflow passes the five executables, five SBOMs, two installer scripts,
+and their attested `SHA256SUMS` to `gh release create`. GitHub CLI creates a
+draft, uploads every asset, and publishes the release before immutability takes
+effect. An upload failure removes the unfinished draft. A separate restartable
+job verifies the release attestation and every local asset. The workflow
+refuses to replace an existing release. Immutable releases must be enabled for
+this repository.
 
 Only after the GitHub release is public does the `anaconda` environment upload
 the five native packages to the configured owner and `main` channel. Configure
