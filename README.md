@@ -56,6 +56,25 @@ has been downloaded. Runtime updates use the configured conda channel. Offline
 updates can use only update metadata and packages already present in the
 runtime update cache.
 
+## Software bill of materials
+
+Runtime releases starting with `26.7.1.post1` include a platform-specific
+CycloneDX 1.7 software bill of materials with the `.cdx.json` suffix. It lists
+the exact conda packages resolved into that platform's executable and records
+their versions, package identifiers, hashes, download locations, licenses when
+available, and known dependency relationships.
+
+The SBOM lets users inspect what the runtime contains without unpacking the
+executable. Developers and redistributors can use its package identifiers and
+hashes to connect the runtime to vulnerability, license, and provenance tools.
+Each SBOM is covered by the release's `SHA256SUMS` file and has its own GitHub
+artifact attestation.
+
+The inventory is deliberately marked incomplete. It covers the resolved conda
+package graph, not the host operating system, Rust crates used to build the
+outer executable, or other vendored or statically linked code outside conda
+package records.
+
 Release instructions for the internal plugin are in
 [`docs/releasing-the-updater.md`](docs/releasing-the-updater.md).
 

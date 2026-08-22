@@ -67,7 +67,7 @@ jobs:
     permissions:
       contents: read
       id-token: write # mint the OIDC token used for artifact attestations
-      attestations: write # publish executable and package attestations
+      attestations: write # publish executable, SBOM, and package attestations
       artifact-metadata: write # register attested artifact metadata
     strategy:
       fail-fast: false
@@ -90,6 +90,10 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
 
+      - name: Set reproducible source timestamp
+        shell: bash
+        run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+
       - name: Build with conda-ship 0.8.0
         id: ship
         uses: jezdez/conda-ship@849c1c5466dfab873bc0053ad9577984e29a4fe3 # 0.8.0
@@ -103,6 +107,7 @@ jobs:
         env:
           ASSET_NAME: ${{ steps.ship.outputs.asset-name }}
           BINARY_PATH: ${{ steps.ship.outputs.binary-path }}
+          SBOM_PATH: ${{ steps.ship.outputs.sbom-path }}
           SUBDIR: ${{ matrix.subdir }}
         run: |
           set -euo pipefail
@@ -112,10 +117,13 @@ jobs:
           mkdir -p "$release_dir"
 
           final_binary="${release_dir}/${ASSET_NAME}"
+          final_sbom="${release_dir}/${ASSET_NAME%.exe}.cdx.json"
           cp "$BINARY_PATH" "$final_binary"
+          cp "$SBOM_PATH" "$final_sbom"
 
           {
             echo "final-binary=${final_binary}"
+            echo "final-sbom=${final_sbom}"
             echo "output-root=${output_root}"
           } >> "$GITHUB_OUTPUT"
 
@@ -132,6 +140,12 @@ jobs:
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-path: ${{ steps.stage.outputs.final-binary }}
+
+      - name: Attest SBOM
+        if: github.event_name == 'push'
+        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        with:
+          subject-path: ${{ steps.stage.outputs.final-sbom }}
 
       - name: Package executable for updates
         shell: bash

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -44,31 +45,181 @@ def render_installers(version: str) -> dict[str, bytes]:
     return rendered
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("root", type=Path)
-    parser.add_argument("version")
-    parser.add_argument("--write-checksums", action="store_true")
-    args = parser.parse_args()
+def require_object(value: object, name: str, path: Path) -> dict[str, object]:
+    if not isinstance(value, dict):
+        raise SystemExit(f"{path} must contain a {name} object")
+    return value
 
-    if VERSION_PATTERN.fullmatch(args.version) is None:
+
+def validate_sbom(
+    path: Path,
+    version: str,
+    subdir: str,
+    executable_name: str,
+) -> None:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise SystemExit(f"could not read CycloneDX SBOM {path}: {error}") from error
+
+    document = require_object(document, "CycloneDX document", path)
+    expected_header = {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.7",
+        "version": 1,
+    }
+    for field, expected in expected_header.items():
+        if document.get(field) != expected:
+            raise SystemExit(
+                f"{path} has unexpected {field}: expected {expected!r}, "
+                f"received {document.get(field)!r}"
+            )
+
+    metadata = require_object(document.get("metadata"), "metadata", path)
+    component = require_object(metadata.get("component"), "metadata.component", path)
+    expected_component = {
+        "type": "application",
+        "name": "conda",
+        "version": version,
+    }
+    for field, expected in expected_component.items():
+        if component.get(field) != expected:
+            raise SystemExit(
+                f"{path} has unexpected metadata.component.{field}: "
+                f"expected {expected!r}, received {component.get(field)!r}"
+            )
+
+    properties = component.get("properties")
+    if not isinstance(properties, list):
+        raise SystemExit(f"{path} must contain metadata.component.properties")
+    property_values = {
+        item.get("name"): item.get("value")
+        for item in properties
+        if isinstance(item, dict)
+    }
+    expected_properties = {
+        "conda-ship:runtime:name": "conda",
+        "conda-ship:artifact:filename": executable_name,
+        "conda-ship:artifact:layout": "embedded",
+        "conda-ship:target:platform": subdir,
+        "conda-ship:sbom:scope": "resolved-conda-packages",
+    }
+    for name, expected in expected_properties.items():
+        if property_values.get(name) != expected:
+            raise SystemExit(
+                f"{path} has unexpected {name}: expected {expected!r}, "
+                f"received {property_values.get(name)!r}"
+            )
+
+    components = document.get("components")
+    if not isinstance(components, list) or not components:
+        raise SystemExit(f"{path} must contain resolved conda package components")
+    component_references = set()
+    for component_index, package in enumerate(components):
+        if not isinstance(package, dict):
+            raise SystemExit(f"{path} component {component_index} must be an object")
+        if not isinstance(package.get("name"), str) or not package["name"]:
+            raise SystemExit(f"{path} component {component_index} must have a name")
+        if not isinstance(package.get("version"), str) or not package["version"]:
+            raise SystemExit(f"{path} component {component_index} must have a version")
+        purl = package.get("purl")
+        if not isinstance(purl, str) or not purl.startswith("pkg:conda/"):
+            raise SystemExit(
+                f"{path} component {component_index} must have a conda package URL"
+            )
+        component_reference = package.get("bom-ref")
+        if not isinstance(component_reference, str):
+            raise SystemExit(f"{path} component {component_index} must have a bom-ref")
+        if component_reference in component_references:
+            raise SystemExit(f"{path} contains duplicate component references")
+        component_references.add(component_reference)
+
+    dependencies = document.get("dependencies")
+    if not isinstance(dependencies, list) or not dependencies:
+        raise SystemExit(f"{path} must contain conda package dependency relationships")
+
+    root_reference = component.get("bom-ref")
+    if not isinstance(root_reference, str):
+        raise SystemExit(f"{path} metadata.component must have a bom-ref")
+    dependency_edges = {}
+    dependency_targets = set()
+    for dependency_index, dependency in enumerate(dependencies):
+        if not isinstance(dependency, dict):
+            raise SystemExit(f"{path} dependency {dependency_index} must be an object")
+        dependency_reference = dependency.get("ref")
+        depends_on = dependency.get("dependsOn")
+        if not isinstance(dependency_reference, str) or not isinstance(
+            depends_on, list
+        ):
+            raise SystemExit(
+                f"{path} dependency {dependency_index} must have ref and dependsOn"
+            )
+        if not all(isinstance(target, str) for target in depends_on):
+            raise SystemExit(
+                f"{path} dependency {dependency_index} has a non-string target"
+            )
+        if dependency_reference in dependency_edges:
+            raise SystemExit(f"{path} contains duplicate dependency references")
+        dependency_edges[dependency_reference] = set(depends_on)
+        dependency_targets.update(depends_on)
+
+    expected_dependency_references = component_references | {root_reference}
+    if set(dependency_edges) != expected_dependency_references:
+        raise SystemExit(
+            f"{path} dependency entries must cover the runtime and every component"
+        )
+    if not dependency_edges[root_reference]:
+        raise SystemExit(f"{path} runtime dependency entry must reference a component")
+    unknown_targets = dependency_targets - component_references
+    if unknown_targets:
+        raise SystemExit(
+            f"{path} dependencies contain unknown component references: "
+            f"{sorted(unknown_targets)!r}"
+        )
+
+    compositions = document.get("compositions")
+    if not isinstance(compositions, list):
+        raise SystemExit(f"{path} must describe its incomplete inventory coverage")
+    if not any(
+        isinstance(composition, dict)
+        and composition.get("aggregate") == "incomplete"
+        and isinstance(composition.get("assemblies"), list)
+        and root_reference in composition["assemblies"]
+        for composition in compositions
+    ):
+        raise SystemExit(f"{path} must mark the runtime inventory as incomplete")
+
+
+def verify_runtime_artifacts(
+    root: Path,
+    version: str,
+    *,
+    write_checksums: bool = False,
+) -> None:
+    if VERSION_PATTERN.fullmatch(version) is None:
         raise SystemExit(
             "runtime versions must use X.Y.Z or X.Y.Z.postN, such as 26.5.3"
         )
 
-    release_dir = args.root / "release-assets"
-    package_dir = args.root / "update-packages"
-    installers = render_installers(args.version)
-    if args.write_checksums:
+    release_dir = root / "release-assets"
+    package_dir = root / "update-packages"
+    installers = render_installers(version)
+    if write_checksums:
         for asset_name, contents in installers.items():
             (release_dir / asset_name).write_bytes(contents)
 
+    executables = {subdir: f"conda-{target}" for subdir, target in TARGETS.items()}
+    sboms = {
+        subdir: f"{executable.removesuffix('.exe')}.cdx.json"
+        for subdir, executable in executables.items()
+    }
     expected_assets = {
-        *(f"conda-{target}" for target in TARGETS.values()),
+        *executables.values(),
+        *sboms.values(),
         *installers,
     }
     expected_packages = {
-        Path(subdir) / f"conda-runtime-{args.version}-0.conda" for subdir in TARGETS
+        Path(subdir) / f"conda-runtime-{version}-0.conda" for subdir in TARGETS
     }
 
     actual_assets = {
@@ -89,9 +240,14 @@ def main() -> None:
         )
     for asset_name, contents in installers.items():
         if (release_dir / asset_name).read_bytes() != contents:
-            raise SystemExit(
-                f"{asset_name} does not match runtime version {args.version}"
-            )
+            raise SystemExit(f"{asset_name} does not match runtime version {version}")
+    for subdir, sbom_name in sboms.items():
+        validate_sbom(
+            release_dir / sbom_name,
+            version,
+            subdir,
+            executables[subdir],
+        )
     if actual_packages != expected_packages:
         raise SystemExit(
             "unexpected update packages: expected "
@@ -99,13 +255,26 @@ def main() -> None:
             f"{sorted(map(str, actual_packages))!r}"
         )
 
-    if args.write_checksums:
+    if write_checksums:
         checksum_path = release_dir / "SHA256SUMS"
         lines = [
             f"{sha256(release_dir / name)}  {name}\n"
             for name in sorted(expected_assets)
         ]
         checksum_path.write_text("".join(lines), encoding="utf-8")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("root", type=Path)
+    parser.add_argument("version")
+    parser.add_argument("--write-checksums", action="store_true")
+    args = parser.parse_args()
+    verify_runtime_artifacts(
+        args.root,
+        args.version,
+        write_checksums=args.write_checksums,
+    )
 
 
 if __name__ == "__main__":
