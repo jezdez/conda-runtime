@@ -46,9 +46,9 @@ publish anything.
 ## Create the release
 
 Create an unprefixed tag that exactly matches `runtime-version`, such as
-`26.5.3` or `26.5.3.post2`.
+`26.7.1` or `26.7.1.post1`.
 
-The workflow uses the conda-ship action and release assets from exactly 0.7.0.
+The workflow uses the conda-ship action and release assets from exactly 0.8.0.
 It builds one canonical executable for each of these five targets:
 
 | Conda subdirectory | Runner | Runtime target |
