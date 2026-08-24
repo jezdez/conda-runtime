@@ -34,11 +34,18 @@ publish attestations.
 
 The two-layer proof uses a temporary `file://` channel, so its executables are
 stamped for that channel. Conda-ship rejects an executable from a different
-update source by design. The proof therefore uses the same committed locks and
-released conda-ship builder to create a local-channel generation instead of
-claiming to exercise the final Anaconda.org-stamped bytes. The native build
-jobs separately verify that each update package contains its finalized release
-executable byte for byte.
+update source by design. The proof therefore creates local-channel generations
+from the committed locks instead of claiming to exercise the final
+Anaconda.org-stamped bytes. The native build jobs separately verify that each
+update package contains its finalized release executable byte for byte.
+
+On Linux and macOS, generation one is built with released conda-ship 0.8.0 and
+generation two is built with released conda-ship 0.9.0. Those jobs prove that
+the published legacy-format readers can apply the new native format through the
+existing `conda-runtime` package. On Windows, both generations are built with
+conda-ship 0.9.0 and use `conda-runtime-v2`. That job proves future updates
+within the new Windows source. It does not demonstrate a direct update from the
+published `26.7.1.post1` executable to `26.7.1.post2`.
 
 Do not create the tag unless that candidate run passes. Tag the same commit the
 candidate used. The tag workflow repeats the build and proof before it can
@@ -47,10 +54,10 @@ publish anything.
 ## Create the release
 
 Create an unprefixed tag that exactly matches `runtime-version`, such as
-`26.7.1.post1` or `26.7.1.post2`.
+`26.7.1.post2` or `26.7.1.post3`.
 
-The workflow uses the conda-ship action and release assets from exactly 0.8.0.
-It builds one canonical executable for each of these five targets:
+The workflow uses the conda-ship action and release assets from exactly 0.9.0.
+It builds one executable for each of these five targets:
 
 | Conda subdirectory | Runner | Runtime target |
 | --- | --- | --- |
@@ -63,7 +70,15 @@ It builds one canonical executable for each of these five targets:
 Each job bootstraps its executable once, then packages those exact executable
 bytes with `cs package-update`. The package verifier checks the native package
 identity, extracts the sole payload, and compares its size and SHA-256 digest
-with the finalized executable.
+with the finalized executable. Each macOS build must also pass strict native
+signature validation before packaging.
+
+Linux and macOS build from the canonical `runtime` project and publish under
+`conda-runtime`. The Windows job creates a deterministic temporary project that
+copies the canonical manifest, lock, and condarc, then changes only
+`[tool.conda-ship.update].package` to `conda-runtime-v2`. The preparation script
+requires byte-identical lock and condarc files and compares the parsed manifests
+after normalizing that one package value.
 
 Conda-ship also creates a CycloneDX 1.7 SBOM for every executable. Each SBOM
 describes the resolved conda packages, package hashes and locations, available
@@ -81,6 +96,36 @@ executable. Future Homebrew and Python packages can distribute the same
 executable bytes. Their delivery integrations must record external ownership
 and the corresponding upgrade instruction.
 
+## Windows transition for 26.7.1.post2
+
+The published `26.7.1.post1` Windows executable was built with conda-ship
+0.8.0. It can discover a newer `conda-runtime` package, but its legacy reader
+cannot validate the PE runtime-data layout written by 0.9.0. Staging then fails
+in the pre-solve hook before the inner conda transaction starts. The executable
+and managed prefix remain unchanged, but every later root conda update retries
+the same candidate and fails again.
+
+Starting with `26.7.1.post2`, Windows update packages use the distinct
+`conda-runtime-v2` package on the `main` channel. No 0.9-format Windows package
+is published under the legacy `conda-runtime` name. Existing Windows
+installations therefore remain on `26.7.1.post1` instead of discovering an
+incompatible native update. Fresh `26.7.1.post2` installations record the v2
+source and can discover later Windows packages published under that name.
+
+Installing `26.7.1.post2` on Windows requires a fresh direct installation. Move
+the old executable and its managed prefix aside for recovery, then run the new
+installer. The default managed prefix is
+`$env:LOCALAPPDATA\conda\runtime`. A custom `CONDA_SHIP_PREFIX` must also point
+to a new empty location. Reusing the old direct-install metadata is rejected.
+
+Conda-ship 0.9.0 has no per-target action input or `cs build` option for the
+update package. The release workflow therefore derives the Windows project
+before calling the action. Package verification, complete-distribution
+validation, Anaconda.org API checks, and repodata checks all derive the expected
+package name from the conda subdirectory. Publishing a later 0.9-format Windows
+package under the legacy name would recreate the same pre-solve failure for
+0.8.0 installations.
+
 ## Publication order
 
 The workflow passes the five executables, five SBOMs, two installer scripts,
@@ -92,16 +137,18 @@ refuses to replace an existing release. Immutable releases must be enabled for
 this repository.
 
 Only after the GitHub release is public does the `anaconda` environment upload
-the five native packages to the configured owner and `main` channel. Configure
+the five native packages to the configured owner and `main` channel. Four
+packages use `conda-runtime`, while `win-64` uses `conda-runtime-v2`. Configure
 that environment with `ANACONDA_OWNER=jezdez` and an `ANACONDA_API_KEY` token
 that can write through the API and manage conda repositories.
 
 Package artifacts retain their `linux-64`, `linux-aarch64`, `osx-64`,
 `osx-arm64`, and `win-64` directories while they move between jobs. Their
-basenames are identical, so flattening them would lose release files.
+basenames are not used to infer the target. The parent directories remain part
+of the validated publication identity.
 
 The upload does not use `--force`. If an executable or package is wrong, make a
 new runtime version rather than replacing a published file. A rerun skips an
 existing package only when its identity, size, and SHA-256 match, then waits
-until all five packages are visible through the Anaconda.org API and channel
-repodata.
+until every package is visible through the expected Anaconda.org package API
+and channel repodata.

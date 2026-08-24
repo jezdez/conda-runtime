@@ -94,12 +94,26 @@ jobs:
         shell: bash
         run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
-      - name: Build with conda-ship 0.8.0
+      - name: Prepare Windows runtime build root
+        if: matrix.subdir == 'win-64'
+        id: windows-root
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          runtime_root="$(
+            python scripts/prepare_windows_runtime_root.py \
+              runtime \
+              "${RUNNER_TEMP}/conda-runtime-win-64"
+          )"
+          echo "root=${runtime_root}" >> "$GITHUB_OUTPUT"
+
+      - name: Build with conda-ship 0.9.0
         id: ship
-        uses: jezdez/conda-ship@849c1c5466dfab873bc0053ad9577984e29a4fe3 # 0.8.0
+        uses: jezdez/conda-ship@c5a6b59d900bfeeb0dfe744d960ea1fd3d95a981 # 0.9.0
         with:
-          conda-ship-version: "0.8.0"
-          root: runtime
+          conda-ship-version: "0.9.0"
+          root: ${{ steps.windows-root.outputs.root || 'runtime' }}
 
       - name: Stage executable
         id: stage
@@ -135,6 +149,13 @@ jobs:
           CONDA_SHIP_PREFIX: ${{ runner.temp }}/conda-runtime-smoke-prefix
         run: '"$BINARY_PATH" --version'
 
+      - name: Verify macOS signature
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          BINARY_PATH: ${{ steps.stage.outputs.final-binary }}
+        run: codesign --verify --strict --verbose=2 "$BINARY_PATH"
+
       - name: Attest executable
         if: github.event_name == 'push'
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
@@ -161,7 +182,6 @@ jobs:
           set -euo pipefail
 
           package_dir="${OUTPUT_ROOT}/update-packages/${SUBDIR}"
-          package_path="${package_dir}/conda-runtime-${RELEASE_VERSION}-0.conda"
           report_path="${RUNNER_TEMP}/conda-runtime-package-${SUBDIR}.json"
           mkdir -p "$package_dir"
           "$CS_PATH" package-update \
@@ -177,7 +197,7 @@ jobs:
           "$python_cmd" scripts/verify-update-package.py \
             "$report_path" \
             "$BINARY_PATH" \
-            "$package_path" \
+            "$package_dir" \
             "$RELEASE_VERSION" \
             "$SUBDIR"
           rm "$report_path"
@@ -296,6 +316,7 @@ jobs:
           update = record["update"]
           assert update["ownership"] == "direct"
           assert update["installation"] == "standalone"
+          assert update["package"] == "conda-runtime"
           assert pathlib.Path(update["executable"]) == pathlib.Path(sys.argv[2])
           PY
 
@@ -349,6 +370,7 @@ jobs:
           if (
               $Record.update.ownership -ne "direct" -or
               $Record.update.installation -ne "standalone" -or
+              $Record.update.package -ne "conda-runtime-v2" -or
               $null -ne $Record.update.instruction -or
               [IO.Path]::GetFullPath($Record.update.executable) -ne $Destination
           ) {
@@ -408,18 +430,52 @@ jobs:
             --work "${RUNNER_TEMP}/conda-runtime-e2e" \
             --platform "$SUBDIR"
 
-      - name: Build generation 1 with conda-ship 0.8.0
-        id: ship
+      - name: Build legacy generation 1 with conda-ship 0.8.0
+        if: matrix.subdir != 'win-64'
+        id: gen1_legacy
         uses: jezdez/conda-ship@849c1c5466dfab873bc0053ad9577984e29a4fe3 # 0.8.0
         with:
           conda-ship-version: "0.8.0"
           root: ${{ runner.temp }}/conda-runtime-e2e/gen1
 
+      - name: Build Windows generation 1 with conda-ship 0.9.0
+        if: matrix.subdir == 'win-64'
+        id: gen1_v2
+        uses: jezdez/conda-ship@c5a6b59d900bfeeb0dfe744d960ea1fd3d95a981 # 0.9.0
+        with:
+          conda-ship-version: "0.9.0"
+          root: ${{ runner.temp }}/conda-runtime-e2e/gen1
+
+      - name: Preserve generation 1 executable
+        id: gen1
+        shell: bash
+        env:
+          GEN1_BINARY: ${{ steps.gen1_legacy.outputs.binary-path || steps.gen1_v2.outputs.binary-path }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+        run: |
+          set -euo pipefail
+
+          binary="${RUNNER_TEMP}/conda-runtime-e2e/gen1-executable"
+          if [ "$RUNNER_OS_NAME" = "Windows" ]; then
+            binary="${binary}.exe"
+          fi
+          cp "$GEN1_BINARY" "$binary"
+          echo "binary=${binary}" >> "$GITHUB_OUTPUT"
+
+      - name: Build generation 2 with conda-ship 0.9.0
+        id: gen2
+        uses: jezdez/conda-ship@c5a6b59d900bfeeb0dfe744d960ea1fd3d95a981 # 0.9.0
+        with:
+          conda-ship-version: "0.9.0"
+          root: ${{ runner.temp }}/conda-runtime-e2e/gen2
+
       - name: Prove the two-layer update
         shell: bash
         env:
-          CS_PATH: ${{ steps.ship.outputs.cs-path }}
-          GEN1_BINARY: ${{ steps.ship.outputs.binary-path }}
+          CS_PATH: ${{ steps.gen2.outputs.cs-path }}
+          GEN1_BINARY: ${{ steps.gen1.outputs.binary }}
+          GEN2_BINARY: ${{ steps.gen2.outputs.binary-path }}
+          GEN2_INFO: ${{ steps.gen2.outputs.info-path }}
           SUBDIR: ${{ matrix.subdir }}
         run: |
           pixi run --manifest-path updater/pyproject.toml --locked \
@@ -427,7 +483,9 @@ jobs:
             --work "${RUNNER_TEMP}/conda-runtime-e2e" \
             --platform "$SUBDIR" \
             --cs-path "$CS_PATH" \
-            --gen1-binary "$GEN1_BINARY"
+            --gen1-binary "$GEN1_BINARY" \
+            --gen2-binary "$GEN2_BINARY" \
+            --gen2-info "$GEN2_INFO"
 
   github-release:
     name: Publish GitHub release
@@ -445,6 +503,11 @@ jobs:
       contents: write # create the GitHub release and upload its files
 
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: validated-runtime
@@ -455,6 +518,7 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: docs/releases/${{ needs.validate-release.outputs.release-version }}.md
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
@@ -515,12 +579,16 @@ jobs:
           fi
 
           trap cleanup_draft ERR
+          if [ ! -f "$RELEASE_NOTES" ]; then
+            echo "Release notes are missing: $RELEASE_NOTES" >&2
+            exit 1
+          fi
           gh release create "$RELEASE_TAG" \
             staged/release-assets/* \
             --verify-tag \
             --latest \
             --title "$RELEASE_TAG" \
-            --notes "Standalone conda ${RELEASE_TAG}"
+            --notes-file "$RELEASE_NOTES"
           trap - ERR
           echo "created=true" >> "$GITHUB_OUTPUT"
 

@@ -12,6 +12,8 @@ import tempfile
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
+from runtime_update_policy import update_package_filename, update_package_name
+
 REPORT_KEYS = {
     "build_number",
     "filename",
@@ -193,15 +195,25 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("report", type=Path)
     parser.add_argument("binary", type=Path)
-    parser.add_argument("package", type=Path)
+    parser.add_argument("package_dir", type=Path)
     parser.add_argument("version")
     parser.add_argument("platform")
     args = parser.parse_args()
 
+    try:
+        package_name = update_package_name(args.platform)
+        package = args.package_dir / update_package_filename(
+            args.platform, args.version
+        )
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    if not package.is_file():
+        raise SystemExit(f"expected update package is missing: {package}")
+
     report = json.loads(args.report.read_text())
     if set(report) != REPORT_KEYS:
         raise SystemExit(f"unexpected package report fields: {sorted(report)!r}")
-    if Path(report["path"]).resolve() != args.package.resolve():
+    if Path(report["path"]).resolve() != package.resolve():
         raise SystemExit("update package report points to a different package")
 
     binary_sha256 = sha256(args.binary)
@@ -211,9 +223,9 @@ def main() -> None:
     except KeyError as error:
         raise SystemExit(f"unsupported native platform: {args.platform}") from error
 
-    index = package_index(args.package)
+    index = package_index(package)
     expected_index = {
-        "name": "conda-runtime",
+        "name": package_name,
         "version": args.version,
         "build": "0",
         "build_number": 0,
@@ -229,23 +241,23 @@ def main() -> None:
     if differences:
         raise SystemExit(f"update package info/index.json differs: {differences!r}")
 
-    payload_sha256, payload_size = packaged_payload(args.package, args.platform)
+    payload_sha256, payload_size = packaged_payload(package, args.platform)
     if (payload_sha256, payload_size) != (binary_sha256, binary_size):
         raise SystemExit(
             "update package payload does not match the finalized executable"
         )
 
-    expected_filename = f"conda-runtime-{args.version}-0.conda"
+    expected_filename = update_package_filename(args.platform, args.version)
     expected = {
         "schema_version": 1,
         "filename": expected_filename,
-        "package_name": "conda-runtime",
+        "package_name": package_name,
         "runtime_version": args.version,
         "build_number": 0,
         "platform": args.platform,
         "path": report["path"],
-        "sha256": sha256(args.package),
-        "size": args.package.stat().st_size,
+        "sha256": sha256(package),
+        "size": package.stat().st_size,
         "payload_sha256": binary_sha256,
         "payload_size": binary_size,
     }

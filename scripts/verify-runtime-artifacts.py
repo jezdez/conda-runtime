@@ -9,6 +9,8 @@ import json
 import re
 from pathlib import Path
 
+from runtime_update_policy import update_package_filename
+
 TARGETS = {
     "linux-64": "x86_64-unknown-linux-gnu",
     "linux-aarch64": "aarch64-unknown-linux-gnu",
@@ -219,7 +221,7 @@ def verify_runtime_artifacts(
         *installers,
     }
     expected_packages = {
-        Path(subdir) / f"conda-runtime-{version}-0.conda" for subdir in TARGETS
+        Path(subdir) / update_package_filename(subdir, version) for subdir in TARGETS
     }
 
     actual_assets = {

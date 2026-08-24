@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 SCRIPT_PATH = Path(__file__).parents[2] / "scripts/publish-runtime-packages.py"
+sys.path.insert(0, str(SCRIPT_PATH.parent))
 SPEC = importlib.util.spec_from_file_location("publish_runtime_packages", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 release_packages = importlib.util.module_from_spec(SPEC)
@@ -18,9 +19,9 @@ SPEC.loader.exec_module(release_packages)
 def runtime_package(
     tmp_path: Path,
     subdir: str = "linux-64",
-    version: str = "26.7.1.post1",
+    version: str = "26.7.1.post2",
 ):
-    path = tmp_path / subdir / f"conda-runtime-{version}-0.conda"
+    path = tmp_path / subdir / release_packages.update_package_filename(subdir, version)
     path.parent.mkdir(parents=True)
     path.write_bytes(b"runtime")
     return release_packages.RuntimePackage(
@@ -170,7 +171,7 @@ def test_publish_skips_exact_files_and_uploads_only_missing(
     tmp_path: Path,
 ):
     existing = runtime_package(tmp_path / "existing")
-    missing = runtime_package(tmp_path / "missing", "osx-arm64")
+    missing = runtime_package(tmp_path / "missing", "win-64")
     uploaded = set()
     commands = []
 
@@ -210,3 +211,68 @@ def test_publish_skips_exact_files_and_uploads_only_missing(
             str(missing.path),
         ]
     ]
+
+
+@pytest.mark.parametrize("version", ["26.7.1.post2", "26.7.1.post3", "99.0.0"])
+def test_windows_versions_use_the_v2_update_source(tmp_path: Path, version: str):
+    package = runtime_package(tmp_path, "win-64", version)
+
+    assert package.package_name == "conda-runtime-v2"
+    assert package.basename == f"win-64/conda-runtime-v2-{version}-0.conda"
+
+
+@pytest.mark.parametrize("subdir", ["linux-64", "linux-aarch64", "osx-64", "osx-arm64"])
+def test_non_windows_versions_keep_the_legacy_update_source(tmp_path: Path, subdir: str):
+    package = runtime_package(tmp_path, subdir, "99.0.0")
+
+    assert package.package_name == "conda-runtime"
+    assert package.filename == "conda-runtime-99.0.0-0.conda"
+
+
+def test_discovery_rejects_legacy_windows_package(tmp_path: Path):
+    version = "99.0.0"
+    for subdir in release_packages.SUBDIRS:
+        runtime_package(tmp_path, subdir, version)
+    packages = release_packages.discover_packages(tmp_path, version)
+
+    assert {package.package_name for package in packages} == {
+        "conda-runtime",
+        "conda-runtime-v2",
+    }
+    windows_v2 = tmp_path / "win-64" / release_packages.update_package_filename("win-64", version)
+    windows_v2.rename(tmp_path / "win-64" / f"conda-runtime-{version}-0.conda")
+
+    with pytest.raises(SystemExit, match="expected"):
+        release_packages.discover_packages(tmp_path, version)
+
+
+def test_windows_remote_checks_use_the_v2_package_name(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    package = runtime_package(tmp_path, "win-64")
+    urls = []
+
+    def fake_get_json(url, **_kwargs):
+        urls.append(url)
+        if "api.anaconda.org" in url:
+            return api_metadata(package)
+        return {
+            "packages.conda": {
+                package.filename: {
+                    "name": package.package_name,
+                    "version": package.version,
+                    "build": "0",
+                    "build_number": 0,
+                    "subdir": package.subdir,
+                    "sha256": package.sha256,
+                    "size": package.size,
+                }
+            }
+        }
+
+    monkeypatch.setattr(release_packages, "get_json", fake_get_json)
+
+    assert release_packages.api_has(package, "jezdez")
+    assert release_packages.repodata_has(package, "jezdez")
+    assert any("/package/jezdez/conda-runtime-v2" in url for url in urls)

@@ -8,13 +8,14 @@ from pathlib import Path
 import pytest
 
 SCRIPT_PATH = Path(__file__).parents[2] / "scripts/verify-runtime-artifacts.py"
+sys.path.insert(0, str(SCRIPT_PATH.parent))
 SPEC = importlib.util.spec_from_file_location("verify_runtime_artifacts", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 runtime_artifacts = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = runtime_artifacts
 SPEC.loader.exec_module(runtime_artifacts)
 
-RUNTIME_VERSION = "26.7.1.post1"
+RUNTIME_VERSION = "26.7.1.post2"
 
 
 def sbom_document(version: str, subdir: str, executable_name: str) -> dict:
@@ -87,7 +88,7 @@ def staged_distribution(tmp_path: Path, version: str = RUNTIME_VERSION) -> Path:
             encoding="utf-8",
         )
 
-        package = package_dir / subdir / f"conda-runtime-{version}-0.conda"
+        package = package_dir / subdir / runtime_artifacts.update_package_filename(subdir, version)
         package.parent.mkdir(parents=True)
         package.write_bytes(f"package for {subdir}".encode())
 
@@ -118,6 +119,17 @@ def test_distribution_requires_every_platform_sbom(tmp_path: Path):
             RUNTIME_VERSION,
             write_checksums=True,
         )
+
+
+def test_distribution_rejects_legacy_windows_update_source(tmp_path: Path):
+    root = staged_distribution(tmp_path)
+    windows = root / "update-packages/win-64"
+    (windows / f"conda-runtime-v2-{RUNTIME_VERSION}-0.conda").rename(
+        windows / f"conda-runtime-{RUNTIME_VERSION}-0.conda"
+    )
+
+    with pytest.raises(SystemExit, match="unexpected update packages"):
+        runtime_artifacts.verify_runtime_artifacts(root, RUNTIME_VERSION, write_checksums=True)
 
 
 def test_distribution_rejects_mislabeled_sbom(tmp_path: Path):

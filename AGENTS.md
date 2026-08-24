@@ -152,13 +152,14 @@
 - Never use `--force` when uploading conda packages.
 - Publish updater and native update packages to the `jezdez` owner and `main`
   channel on Anaconda.org.
-- Finalize and attest executable bytes before creating the matching
-  `conda-runtime` transport package.
+- Finalize and attest executable bytes before creating the matching native
+  update package. Linux and macOS use `conda-runtime`. Windows starting with
+  `26.7.1.post2` uses `conda-runtime-v2`.
 - Publish GitHub executable assets, checksums, and installer scripts before
   uploading matching update packages to Anaconda.org. The channel upload is
   last so installed runtimes cannot discover an incomplete release.
-- Preserve platform subdirectories while collecting native transport packages.
-  Their basenames can be identical across conda subdirectories.
+- Preserve platform subdirectories while collecting native update packages.
+  Derive each expected package name from its conda subdirectory.
 - Publish one identical executable per platform. Homebrew and Python delivery
   integrations establish external ownership without restamping it.
 - Keep provider-specific update instructions in `conda-runtime-updater`, not in

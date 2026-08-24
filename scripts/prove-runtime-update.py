@@ -24,6 +24,9 @@ from conda_runtime_updater.locking import acquire_lock, release_lock
 from conda_runtime_updater.metadata import RuntimeMetadata, discover_runtime
 from ruamel.yaml import YAML
 
+from prepare_windows_runtime_root import derive_windows_manifest
+from runtime_update_policy import update_package_name
+
 OUTPUT_LIMIT = 2_000
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 COMPETING_CONDA_VERSION = "9999.0.0"
@@ -51,6 +54,7 @@ class Scenario:
     stable: Path
     envs: Path
     packages: Path
+    platform: str
 
 
 @dataclass(frozen=True)
@@ -182,11 +186,19 @@ def selected_packages(lock_path: Path, platform: str) -> list[LockedPackage]:
     return selected
 
 
-def copy_runtime_root(source: Path, destination: Path, channel_uri: str) -> None:
+def copy_runtime_root(
+    source: Path, destination: Path, channel_uri: str, platform: str
+) -> None:
     if not source.is_dir():
         raise RuntimeError(f"runtime root is missing: {source}")
     shutil.copytree(source, destination)
     rewrite_update_channel(destination / "conda.toml", channel_uri)
+    if platform == "win-64":
+        manifest = destination / "conda.toml"
+        manifest.write_text(
+            derive_windows_manifest(manifest.read_text(encoding="utf-8")),
+            encoding="utf-8",
+        )
     rewrite_condarc(destination / "runtime.condarc", channel_uri)
 
 
@@ -385,8 +397,8 @@ def prepare(args: argparse.Namespace) -> None:
     channel_uri = channel.resolve().as_uri()
     gen1 = work / "gen1"
     gen2 = work / "gen2"
-    copy_runtime_root(source_gen1, gen1, channel_uri)
-    copy_runtime_root(source_gen2, gen2, channel_uri)
+    copy_runtime_root(source_gen1, gen1, channel_uri, args.platform)
+    copy_runtime_root(source_gen2, gen2, channel_uri, args.platform)
     mirror_packages(
         channel,
         channel_uri,
@@ -394,58 +406,6 @@ def prepare(args: argparse.Namespace) -> None:
         work / "downloads",
     )
     publish_competing_conda(channel_uri, work / "competing-conda")
-
-
-def template_for_builder(cs_path: Path) -> Path:
-    name = cs_path.name
-    if name.startswith("cs-"):
-        template_name = name.replace("cs-", "cs-template-", 1)
-    elif name == "cs.exe":
-        template_name = "cs-template.exe"
-    elif name == "cs":
-        template_name = "cs-template"
-    else:
-        raise RuntimeError(f"cannot derive conda-ship template name from {cs_path}")
-    template = cs_path.with_name(template_name)
-    if not template.is_file():
-        raise RuntimeError(f"released conda-ship template is missing: {template}")
-    return template
-
-
-def build_runtime(
-    cs_path: Path, template: Path, root: Path, out_dir: Path, platform: str
-) -> RuntimeBuild:
-    if out_dir.exists():
-        raise RuntimeError(f"runtime build output already exists: {out_dir}")
-    run(
-        [
-            cs_path,
-            "build",
-            "--root",
-            root,
-            "--platform",
-            platform,
-            "--template",
-            template,
-            "--out-dir",
-            out_dir,
-        ]
-    )
-    info_paths = list(out_dir.glob("*.info.json"))
-    if len(info_paths) != 1:
-        raise RuntimeError(
-            f"expected one runtime info file in {out_dir}, found {info_paths}"
-        )
-    info = require_mapping(
-        json.loads(info_paths[0].read_text(encoding="utf-8")), str(info_paths[0])
-    )
-    binary_name = info.get("binary")
-    if not isinstance(binary_name, str) or Path(binary_name).name != binary_name:
-        raise RuntimeError(f"runtime info has an invalid binary name: {binary_name!r}")
-    binary = out_dir / binary_name
-    if not binary.is_file():
-        raise RuntimeError(f"runtime build did not produce {binary}")
-    return RuntimeBuild(binary=binary, info=info_paths[0])
 
 
 def package_update(
@@ -483,6 +443,7 @@ def new_scenario(root: Path, binary: Path, platform: str) -> Scenario:
         stable=stable,
         envs=root / "envs",
         packages=root / "packages",
+        platform=platform,
     )
 
 
@@ -521,6 +482,7 @@ def runtime_environment(scenario: Scenario, *, offline: bool = False) -> dict[st
     env["CONDA_ENVS_PATH"] = str(scenario.envs)
     env["CONDA_PKGS_DIRS"] = str(scenario.packages)
     env["CONDARC"] = str(scenario.prefix / ".condarc")
+    env["CONDA_ALWAYS_YES"] = "false"
     env["RATTLER_CACHE_DIR"] = str(scenario.root / "rattler-cache")
     if offline:
         env["CONDA_OFFLINE"] = "1"
@@ -658,6 +620,7 @@ def verify_outer_identity(
     if (
         record.get("version") != version
         or update.get("ownership") != ownership
+        or update.get("package") != update_package_name(scenario.platform)
         or (installation is not None and update.get("installation") != installation)
         or update.get("sha256") != sha256(scenario.stable)
         or not isinstance(executable, str)
@@ -683,7 +646,9 @@ def record_external_installation(scenario: Scenario) -> None:
         }
     )
     result = run([scenario.stable], env=env)
-    response = require_mapping(json.loads(result.stdout), "record-installation response")
+    response = require_mapping(
+        json.loads(result.stdout), "record-installation response"
+    )
     if response.get("recorded") is not True:
         raise RuntimeError("runtime did not record the external installation")
 
@@ -987,19 +952,22 @@ def full(args: argparse.Namespace) -> None:
     )
     cs_path = args.cs_path.resolve()
     gen1_binary = args.gen1_binary.resolve()
+    gen2_binary = args.gen2_binary.resolve()
+    gen2_info = args.gen2_info.resolve()
     if not cs_path.is_file():
         raise RuntimeError(f"released conda-ship builder is missing: {cs_path}")
     if not gen1_binary.is_file():
         raise RuntimeError(f"action-built Gen1 executable is missing: {gen1_binary}")
-    template = template_for_builder(cs_path)
+    if not gen2_binary.is_file():
+        raise RuntimeError(f"action-built Gen2 executable is missing: {gen2_binary}")
+    if not gen2_info.is_file():
+        raise RuntimeError(f"action-built Gen2 info is missing: {gen2_info}")
 
     proof = work / "full"
     if proof.exists():
         raise RuntimeError(f"full proof output already exists: {proof}")
     proof.mkdir()
-    gen2_build = build_runtime(
-        cs_path, template, gen2_root, proof / "gen2", args.platform
-    )
+    gen2_build = RuntimeBuild(binary=gen2_binary, info=gen2_info)
     package_update(
         cs_path,
         gen2_build,
@@ -1056,6 +1024,8 @@ def parse_args() -> argparse.Namespace:
     full_parser.add_argument("--platform", required=True)
     full_parser.add_argument("--cs-path", required=True, type=Path)
     full_parser.add_argument("--gen1-binary", required=True, type=Path)
+    full_parser.add_argument("--gen2-binary", required=True, type=Path)
+    full_parser.add_argument("--gen2-info", required=True, type=Path)
     full_parser.set_defaults(handler=full)
     return parser.parse_args()
 
