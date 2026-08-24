@@ -56,6 +56,15 @@ has been downloaded. Runtime updates use the configured conda channel. Offline
 updates can use only update metadata and packages already present in the
 runtime update cache.
 
+> [!IMPORTANT]
+> Windows runtimes through `26.7.1.post1` cannot apply the native executable
+> format introduced by conda-ship 0.9.0. Starting with `26.7.1.post2`, Windows
+> uses the separate `conda-runtime-v2` update package so legacy installations do
+> not discover an incompatible executable. Preserve and move aside the existing
+> executable and managed prefix, then use the `26.7.1.post2` installer with a
+> fresh prefix. Do not reuse the old direct-install metadata. That fresh
+> installation can receive later native updates from `conda-runtime-v2`.
+
 ## Software bill of materials
 
 Runtime releases starting with `26.7.1.post1` include a platform-specific

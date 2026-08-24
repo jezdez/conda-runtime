@@ -13,10 +13,11 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from runtime_update_policy import update_package_filename, update_package_name
+
 API_URL = "https://api.anaconda.org"
 CHANNEL_URL = "https://conda.anaconda.org"
 CHANNEL = "main"
-PACKAGE_NAME = "conda-runtime"
 SUBDIRS = ("linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64")
 NATIVE_IDENTITIES = {
     "linux-64": {
@@ -70,8 +71,12 @@ class RuntimePackage:
     size: int
 
     @property
+    def package_name(self) -> str:
+        return update_package_name(self.subdir)
+
+    @property
     def filename(self) -> str:
-        return f"{PACKAGE_NAME}-{self.version}-0.conda"
+        return update_package_filename(self.subdir, self.version)
 
     @property
     def basename(self) -> str:
@@ -88,7 +93,7 @@ def file_sha256(path: Path) -> str:
 
 def discover_packages(root: Path, version: str) -> list[RuntimePackage]:
     expected = {
-        Path(subdir) / f"{PACKAGE_NAME}-{version}-0.conda" for subdir in SUBDIRS
+        Path(subdir) / update_package_filename(subdir, version) for subdir in SUBDIRS
     }
     actual = {path.relative_to(root) for path in root.rglob("*") if path.is_file()}
     if actual != expected:
@@ -145,7 +150,7 @@ def verify_fields(
 
 def api_has(package: RuntimePackage, owner: str) -> bool:
     metadata = get_json(
-        f"{API_URL}/package/{owner}/{PACKAGE_NAME}",
+        f"{API_URL}/package/{owner}/{package.package_name}",
         missing_ok=True,
     )
     if metadata is None:
@@ -213,7 +218,7 @@ def repodata_has(package: RuntimePackage, owner: str) -> bool:
         f"repodata for {package.basename}",
         record,
         {
-            "name": PACKAGE_NAME,
+            "name": package.package_name,
             "version": package.version,
             "build": "0",
             "build_number": 0,
@@ -285,7 +290,7 @@ def main() -> None:
         timeout=args.timeout,
         interval=args.interval,
     )
-    print(f"Published and verified {PACKAGE_NAME} {args.version} for all platforms.")
+    print(f"Published and verified runtime update packages for {args.version}.")
 
 
 if __name__ == "__main__":
