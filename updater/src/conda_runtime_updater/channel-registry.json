@@ -1,0 +1,17 @@
+{
+  "channels": {
+    "anaconda-main": {
+      "description": "Anaconda-maintained packages from the main channel.",
+      "mirrors": [
+        "https://repo.anaconda.com/pkgs/main"
+      ]
+    },
+    "conda-forge": {
+      "description": "Community-maintained conda package channel.",
+      "mirrors": [
+        "https://conda.anaconda.org/conda-forge",
+        "https://prefix.dev/conda-forge"
+      ]
+    }
+  }
+}

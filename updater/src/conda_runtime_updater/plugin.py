@@ -13,9 +13,10 @@ from conda.base.context import context
 from conda.common.path import paths_equal
 from conda.exceptions import CondaError, CondaSystemExit
 from conda.models.match_spec import MatchSpec
-from conda.plugins.types import CondaPostCommand, CondaPreSolve
+from conda.plugins.types import CondaPostCommand, CondaPreCommand, CondaPreSolve
 from conda.reporters import confirm_yn
 
+from .channels import CHANNEL_COMMANDS, select_channel
 from .helper import invoke_helper, validate_check
 from .locking import acquire_lock, release_lock
 from .metadata import conda_version_from_runtime, discover_runtime
@@ -154,6 +155,16 @@ def post_command(command: str) -> None:
             f"recovery: {failure}",
             file=sys.stderr,
         )
+
+
+@plugins.hookimpl(tryfirst=True)
+def conda_pre_commands() -> Iterable[CondaPreCommand]:
+    yield CondaPreCommand(
+        # Conda sorts pre-command hooks by name. Select before check_tos reads channels.
+        name="channel-selection-conda-runtime",
+        action=select_channel,
+        run_for=CHANNEL_COMMANDS,
+    )
 
 
 @plugins.hookimpl
