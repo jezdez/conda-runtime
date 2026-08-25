@@ -94,26 +94,12 @@ jobs:
         shell: bash
         run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
-      - name: Prepare Windows runtime build root
-        if: matrix.subdir == 'win-64'
-        id: windows-root
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          runtime_root="$(
-            python scripts/prepare_windows_runtime_root.py \
-              runtime \
-              "${RUNNER_TEMP}/conda-runtime-win-64"
-          )"
-          echo "root=${runtime_root}" >> "$GITHUB_OUTPUT"
-
       - name: Build with conda-ship 0.9.0
         id: ship
         uses: jezdez/conda-ship@c5a6b59d900bfeeb0dfe744d960ea1fd3d95a981 # 0.9.0
         with:
           conda-ship-version: "0.9.0"
-          root: ${{ steps.windows-root.outputs.root || 'runtime' }}
+          root: runtime
 
       - name: Stage executable
         id: stage
@@ -182,6 +168,7 @@ jobs:
           set -euo pipefail
 
           package_dir="${OUTPUT_ROOT}/update-packages/${SUBDIR}"
+          package_path="${package_dir}/conda-runtime-${RELEASE_VERSION}-0.conda"
           report_path="${RUNNER_TEMP}/conda-runtime-package-${SUBDIR}.json"
           mkdir -p "$package_dir"
           "$CS_PATH" package-update \
@@ -197,7 +184,7 @@ jobs:
           "$python_cmd" scripts/verify-update-package.py \
             "$report_path" \
             "$BINARY_PATH" \
-            "$package_dir" \
+            "$package_path" \
             "$RELEASE_VERSION" \
             "$SUBDIR"
           rm "$report_path"
@@ -370,7 +357,7 @@ jobs:
           if (
               $Record.update.ownership -ne "direct" -or
               $Record.update.installation -ne "standalone" -or
-              $Record.update.package -ne "conda-runtime-v2" -or
+              $Record.update.package -ne "conda-runtime" -or
               $null -ne $Record.update.instruction -or
               [IO.Path]::GetFullPath($Record.update.executable) -ne $Destination
           ) {
@@ -440,7 +427,7 @@ jobs:
 
       - name: Build Windows generation 1 with conda-ship 0.9.0
         if: matrix.subdir == 'win-64'
-        id: gen1_v2
+        id: gen1_windows
         uses: jezdez/conda-ship@c5a6b59d900bfeeb0dfe744d960ea1fd3d95a981 # 0.9.0
         with:
           conda-ship-version: "0.9.0"
@@ -450,7 +437,7 @@ jobs:
         id: gen1
         shell: bash
         env:
-          GEN1_BINARY: ${{ steps.gen1_legacy.outputs.binary-path || steps.gen1_v2.outputs.binary-path }}
+          GEN1_BINARY: ${{ steps.gen1_legacy.outputs.binary-path || steps.gen1_windows.outputs.binary-path }}
           RUNNER_OS_NAME: ${{ runner.os }}
         run: |
           set -euo pipefail

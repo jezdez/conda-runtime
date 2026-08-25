@@ -24,9 +24,6 @@ from conda_runtime_updater.locking import acquire_lock, release_lock
 from conda_runtime_updater.metadata import RuntimeMetadata, discover_runtime
 from ruamel.yaml import YAML
 
-from prepare_windows_runtime_root import derive_windows_manifest
-from runtime_update_policy import update_package_name
-
 OUTPUT_LIMIT = 2_000
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 COMPETING_CONDA_VERSION = "9999.0.0"
@@ -186,19 +183,11 @@ def selected_packages(lock_path: Path, platform: str) -> list[LockedPackage]:
     return selected
 
 
-def copy_runtime_root(
-    source: Path, destination: Path, channel_uri: str, platform: str
-) -> None:
+def copy_runtime_root(source: Path, destination: Path, channel_uri: str) -> None:
     if not source.is_dir():
         raise RuntimeError(f"runtime root is missing: {source}")
     shutil.copytree(source, destination)
     rewrite_update_channel(destination / "conda.toml", channel_uri)
-    if platform == "win-64":
-        manifest = destination / "conda.toml"
-        manifest.write_text(
-            derive_windows_manifest(manifest.read_text(encoding="utf-8")),
-            encoding="utf-8",
-        )
     rewrite_condarc(destination / "runtime.condarc", channel_uri)
 
 
@@ -397,8 +386,8 @@ def prepare(args: argparse.Namespace) -> None:
     channel_uri = channel.resolve().as_uri()
     gen1 = work / "gen1"
     gen2 = work / "gen2"
-    copy_runtime_root(source_gen1, gen1, channel_uri, args.platform)
-    copy_runtime_root(source_gen2, gen2, channel_uri, args.platform)
+    copy_runtime_root(source_gen1, gen1, channel_uri)
+    copy_runtime_root(source_gen2, gen2, channel_uri)
     mirror_packages(
         channel,
         channel_uri,
@@ -620,7 +609,7 @@ def verify_outer_identity(
     if (
         record.get("version") != version
         or update.get("ownership") != ownership
-        or update.get("package") != update_package_name(scenario.platform)
+        or update.get("package") != "conda-runtime"
         or (installation is not None and update.get("installation") != installation)
         or update.get("sha256") != sha256(scenario.stable)
         or not isinstance(executable, str)
