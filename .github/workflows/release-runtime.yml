@@ -94,11 +94,11 @@ jobs:
         shell: bash
         run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
-      - name: Build with conda-ship 0.9.0
+      - name: Build with conda-ship 0.9.1
         id: ship
-        uses: jezdez/conda-ship@c5a6b59d900bfeeb0dfe744d960ea1fd3d95a981 # 0.9.0
+        uses: conda-incubator/conda-ship@71788f3451524a4859ddc6435067cb176919832c # 0.9.1
         with:
-          conda-ship-version: "0.9.0"
+          conda-ship-version: "0.9.1"
           root: runtime
 
       - name: Stage executable
@@ -420,17 +420,18 @@ jobs:
       - name: Build legacy generation 1 with conda-ship 0.8.0
         if: matrix.subdir != 'win-64'
         id: gen1_legacy
-        uses: jezdez/conda-ship@849c1c5466dfab873bc0053ad9577984e29a4fe3 # 0.8.0
+        # Use the current wrapper to verify pre-transfer release attestations.
+        uses: conda-incubator/conda-ship@71788f3451524a4859ddc6435067cb176919832c # 0.9.1
         with:
           conda-ship-version: "0.8.0"
           root: ${{ runner.temp }}/conda-runtime-e2e/gen1
 
-      - name: Build Windows generation 1 with conda-ship 0.9.0
+      - name: Build Windows generation 1 with conda-ship 0.9.1
         if: matrix.subdir == 'win-64'
         id: gen1_windows
-        uses: jezdez/conda-ship@c5a6b59d900bfeeb0dfe744d960ea1fd3d95a981 # 0.9.0
+        uses: conda-incubator/conda-ship@71788f3451524a4859ddc6435067cb176919832c # 0.9.1
         with:
-          conda-ship-version: "0.9.0"
+          conda-ship-version: "0.9.1"
           root: ${{ runner.temp }}/conda-runtime-e2e/gen1
 
       - name: Preserve generation 1 executable
@@ -449,11 +450,11 @@ jobs:
           cp "$GEN1_BINARY" "$binary"
           echo "binary=${binary}" >> "$GITHUB_OUTPUT"
 
-      - name: Build generation 2 with conda-ship 0.9.0
+      - name: Build generation 2 with conda-ship 0.9.1
         id: gen2
-        uses: jezdez/conda-ship@c5a6b59d900bfeeb0dfe744d960ea1fd3d95a981 # 0.9.0
+        uses: conda-incubator/conda-ship@71788f3451524a4859ddc6435067cb176919832c # 0.9.1
         with:
-          conda-ship-version: "0.9.0"
+          conda-ship-version: "0.9.1"
           root: ${{ runner.temp }}/conda-runtime-e2e/gen2
 
       - name: Prove the two-layer update
