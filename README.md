@@ -59,7 +59,7 @@ runtime update cache.
 > [!IMPORTANT]
 > Existing Windows alpha installations cannot update in place to the
 > conda-ship 0.9.0 runtime format. Move aside the existing executable and
-> managed prefix, then install `26.7.2` into a fresh prefix. Do not reuse
+> managed prefix, then install `26.7.2.post1` into a fresh prefix. Do not reuse
 > the old direct-install metadata.
 
 ## Software bill of materials
