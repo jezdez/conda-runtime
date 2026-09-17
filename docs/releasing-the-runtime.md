@@ -40,10 +40,10 @@ Anaconda.org-stamped bytes. The native build jobs separately verify that each
 update package contains its finalized release executable byte for byte.
 
 On Linux and macOS, generation one is built with released conda-ship 0.8.0 and
-generation two is built with released conda-ship 0.9.1. Those jobs prove that
+generation two is built with released conda-ship 0.9.2. Those jobs prove that
 the published legacy-format readers can apply the new native format through the
 existing `conda-runtime` package. On Windows, both generations are built with
-conda-ship 0.9.1 and use `conda-runtime`. That job proves native updates after a
+conda-ship 0.9.2 and use `conda-runtime`. That job proves native updates after a
 fresh 0.9.0-format installation. It does not demonstrate an in-place update
 from a published 0.8.0-format Windows executable.
 
@@ -56,7 +56,7 @@ publish anything.
 Create an unprefixed tag that exactly matches `runtime-version`, such as
 `26.7.2`.
 
-The workflow uses the conda-ship action and release assets from exactly 0.9.1.
+The workflow uses the conda-ship action and release assets from exactly 0.9.2.
 It builds one executable for each of these five targets:
 
 | Conda subdirectory | Runner | Runtime target |
