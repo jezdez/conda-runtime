@@ -1,6 +1,3 @@
-channels:
-  - https://conda.anaconda.org/jezdez
-  - https://conda.anaconda.org/conda-forge
 channel_priority: strict
 envs_dirs:
   - ~/.conda/envs
