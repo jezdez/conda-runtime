@@ -54,7 +54,7 @@ publish anything.
 ## Create the release
 
 Create an unprefixed tag that exactly matches `runtime-version`, such as
-`26.7.2`.
+`26.7.2.post1`.
 
 The workflow uses the conda-ship action and release assets from exactly 0.9.2.
 It builds one executable for each of these five targets:
@@ -95,7 +95,7 @@ and the corresponding upgrade instruction.
 ## Windows alpha installations
 
 Existing Windows alpha installations must be replaced with a fresh
-`26.7.2` installation. Move aside the existing executable and managed
+`26.7.2.post1` installation. Move aside the existing executable and managed
 prefix, then run the new installer with a new prefix. Do not reuse the old
 direct-install metadata.
 
