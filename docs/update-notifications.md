@@ -10,9 +10,9 @@ Externally managed installations show the recorded update instruction when
 available, or guidance to use the package manager that installed the runtime.
 A notice does not download or install update packages.
 
-Notifications require an executable that supports conda-ship's `v1/probe`
-helper. Older executables can still use the updater's existing transaction
-coordination, but do not produce these notices.
+Notifications require an executable built with conda-ship 0.10.0 or newer,
+which provides the `v1/probe` helper. Older executables can still use the
+updater's existing transaction coordination, but do not produce these notices.
 
 ## Network and offline behavior
 
@@ -61,6 +61,7 @@ generic warning:
 conda config --set notify_outdated_conda true
 ```
 
-The package's default also applies if the updater is installed in an unmanaged
-prefix or plugins are disabled. Removing the updater package removes its
-configuration file.
+The package's default also applies when runtime update notifications are
+disabled, the updater is installed in an unmanaged prefix, or plugins are
+disabled. The same prefix-relative configuration file is installed on Windows.
+Removing the updater package removes the file.

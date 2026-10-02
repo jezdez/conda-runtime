@@ -4,12 +4,10 @@
 channel on Anaconda.org. It is not installed from conda-ship and does not
 depend on conda-ship.
 
-Version 0.2.0 adds update notifications through the stamped executable's
-`v1/probe` helper. Before including it in a runtime release, use a released
-conda-ship builder and template with that helper. Publish the updater package,
-then update the runtime's updater pin and regenerate its lock. The current
-production pins remain on updater 0.1.0 and conda-ship 0.9.2 until those
-prerequisites are available.
+Version 0.2.0 adds update notifications through the `v1/probe` helper released
+in conda-ship 0.10.0. Build notification-enabled runtimes with conda-ship 0.10.0
+or newer. Publish updater 0.2.0, then update the runtime's updater pin from
+0.1.0 and regenerate its lock before publishing a runtime with notifications.
 
 Update the version in both of these files:
 
