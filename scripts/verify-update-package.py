@@ -32,6 +32,7 @@ NATIVE_IDENTITIES = {
     "osx-64": {"platform": "osx", "arch": "x86_64"},
     "osx-arm64": {"platform": "osx", "arch": "arm64"},
     "win-64": {"platform": "win", "arch": "x86_64"},
+    "win-arm64": {"platform": "win", "arch": "arm64"},
 }
 
 
@@ -117,7 +118,7 @@ def package_index(package: Path) -> dict[str, object]:
 
 
 def packaged_payload(package: Path, platform: str) -> tuple[str, int]:
-    expected_path = "conda.exe" if platform == "win-64" else "bin/conda"
+    expected_path = "conda.exe" if platform.startswith("win-") else "bin/conda"
     try:
         archive = ZipFile(package)
     except BadZipFile as error:

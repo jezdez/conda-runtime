@@ -3,10 +3,8 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pytest
+import pytest
 
 SCRIPT_PATH = Path(__file__).parents[2] / "scripts/prove-runtime-update.py"
 sys.path.insert(0, str(SCRIPT_PATH.parent))
@@ -34,3 +32,14 @@ def test_runtime_proof_disables_user_always_yes(
     environment = runtime_proof.runtime_environment(scenario)
 
     assert environment["CONDA_ALWAYS_YES"] == "false"
+
+
+@pytest.mark.parametrize("platform", ["win-64", "win-arm64"])
+def test_windows_update_scenario_preserves_executable_suffix(tmp_path: Path, platform: str):
+    source = tmp_path / "source.exe"
+    source.write_bytes(b"native runtime")
+
+    scenario = runtime_proof.new_scenario(tmp_path / "scenario", source, platform)
+
+    assert scenario.stable.name == "conda.exe"
+    assert scenario.stable.read_bytes() == source.read_bytes()

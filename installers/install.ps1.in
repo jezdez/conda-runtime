@@ -26,7 +26,13 @@ For recovery, move it aside and use the installer from the same runtime release.
 "@
 }
 
-$AssetName = "conda-x86_64-pc-windows-msvc.exe"
+$Architecture = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+switch ($Architecture) {
+    "X64" { $Target = "x86_64-pc-windows-msvc" }
+    "Arm64" { $Target = "aarch64-pc-windows-msvc" }
+    default { throw "Unsupported Windows architecture: $Architecture" }
+}
+$AssetName = "conda-$Target.exe"
 $DownloadBase = "$Repository/releases/download/$Version"
 $TemporaryDir = Join-Path ([IO.Path]::GetTempPath()) "conda-runtime-$([Guid]::NewGuid())"
 $InstallTemporary = $null

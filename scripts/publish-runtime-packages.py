@@ -17,7 +17,7 @@ API_URL = "https://api.anaconda.org"
 CHANNEL_URL = "https://conda.anaconda.org"
 CHANNEL = "main"
 PACKAGE_NAME = "conda-runtime"
-SUBDIRS = ("linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64")
+SUBDIRS = ("linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64", "win-arm64")
 NATIVE_IDENTITIES = {
     "linux-64": {
         "platform": "linux",
@@ -46,6 +46,13 @@ NATIVE_IDENTITIES = {
         "machine": "arm64",
         "operatingsystem": "darwin",
         "target-triplet": "arm64-any-darwin",
+    },
+    "win-arm64": {
+        "platform": "win",
+        "arch": "arm64",
+        "machine": "arm64",
+        "operatingsystem": "win32",
+        "target-triplet": "arm64-any-win32",
     },
     "win-64": {
         "platform": "win",

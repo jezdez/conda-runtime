@@ -104,8 +104,8 @@ def test_complete_distribution_includes_sboms_in_checksums(tmp_path: Path):
     )
 
     checksum_lines = (root / "release-assets/SHA256SUMS").read_text().splitlines()
-    assert len(checksum_lines) == 12
-    assert sum(line.endswith(".cdx.json") for line in checksum_lines) == 5
+    assert len(checksum_lines) == 14
+    assert sum(line.endswith(".cdx.json") for line in checksum_lines) == 6
 
 
 def test_distribution_requires_every_platform_sbom(tmp_path: Path):
