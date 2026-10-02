@@ -4,6 +4,13 @@
 channel on Anaconda.org. It is not installed from conda-ship and does not
 depend on conda-ship.
 
+Version 0.2.0 adds update notifications through the stamped executable's
+`v1/probe` helper. Before including it in a runtime release, use a released
+conda-ship builder and template with that helper. Publish the updater package,
+then update the runtime's updater pin and regenerate its lock. The current
+production pins remain on updater 0.1.0 and conda-ship 0.9.2 until those
+prerequisites are available.
+
 Update the version in both of these files:
 
 - `updater/pyproject.toml`

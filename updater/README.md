@@ -33,3 +33,10 @@ helper actions and does not add a daemon, service, receipt, or updater command.
 If the inner transaction fails, the old executable remains usable. The next
 runtime invocation and update attempt recover or discard the interrupted
 state.
+
+The post-command hook also uses the executable's advisory probe for update
+notifications. It uses a daily online check interval and cached metadata
+offline or after network failures, and stays silent for quiet, JSON, dry-run,
+and noninteractive commands. It never stages an update for a notification.
+See [runtime update notifications](../docs/update-notifications.md) for the
+settings and offline behavior.

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "conda-runtime-updater"
-version = "0.1.0"
+version = "0.2.0"
 description = "Coordinate standalone conda executable updates with root-prefix transactions."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,7 +20,7 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
 ]
-dependencies = ["conda>=26.1.1"]
+dependencies = ["conda>=26.1.1", "platformdirs>=3.10.0"]
 
 [project.optional-dependencies]
 test = [
@@ -36,6 +36,9 @@ repository = "https://github.com/jezdez/conda-runtime"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/conda_runtime_updater"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"condarc.d/conda-runtime-updater.yaml" = "condarc.d/conda-runtime-updater.yaml"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -10,15 +10,17 @@ from typing import TYPE_CHECKING
 from conda import plugins
 from conda.base.constants import UpdateModifier
 from conda.base.context import context
+from conda.common.configuration import PrimitiveParameter
 from conda.common.path import paths_equal
 from conda.exceptions import CondaError, CondaSystemExit
 from conda.models.match_spec import MatchSpec
-from conda.plugins.types import CondaPostCommand, CondaPreSolve
+from conda.plugins.types import CondaPostCommand, CondaPreSolve, CondaSetting
 from conda.reporters import confirm_yn
 
 from .helper import invoke_helper, validate_check
 from .locking import acquire_lock, release_lock
 from .metadata import conda_version_from_runtime, discover_runtime
+from .notifications import notify
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -123,10 +125,10 @@ def pre_solve(
 def post_command(command: str) -> None:
     """Apply a staged outer update after the inner command succeeds."""
 
-    del command
     global _session
 
     if _session is None:
+        notify(command)
         return
 
     session = _session
@@ -166,5 +168,14 @@ def conda_post_commands() -> Iterable[CondaPostCommand]:
     yield CondaPostCommand(
         name="conda-runtime-update",
         action=post_command,
-        run_for={"create", "env_update", "install", "update"},
+        run_for={"info", "list", "create", "env_update", "install", "update", "remove"},
+    )
+
+
+@plugins.hookimpl
+def conda_settings() -> Iterable[CondaSetting]:
+    yield CondaSetting(
+        name="runtime_update_notifications",
+        description="Show available standalone conda runtime updates after interactive commands.",
+        parameter=PrimitiveParameter(True, element_type=bool),
     )
