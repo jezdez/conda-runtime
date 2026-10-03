@@ -14,6 +14,12 @@ Notifications require an executable built with conda-ship 0.10.0 or newer,
 which provides the `v1/probe` helper. Older executables can still use the
 updater's existing transaction coordination, but do not produce these notices.
 
+Existing installations need updater 0.2.0 to receive notifications. On Linux
+and macOS, run `conda self update --all` to upgrade the runtime, updater plugin,
+and dependencies together. A bare `conda self update` can leave the older
+updater installed. Older Windows alpha installations require a
+[fresh installation](releases/26.9.1.md).
+
 ## Network and offline behavior
 
 The plugin uses a one-day interval for online checks of each installation and
