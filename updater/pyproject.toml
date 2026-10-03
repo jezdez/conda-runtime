@@ -62,6 +62,7 @@ platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64", "win-
 [tool.pixi.dependencies]
 python = "3.12.*"
 conda = ">=26.1.1"
+conda-index = ">=0.12.1"
 hatchling = ">=1.27"
 pytest = ">=8"
 rattler-build = "0.70.*"

@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import tomllib
 import urllib.request
@@ -358,15 +359,15 @@ about:
     run(["rattler-build", "publish", "--to", channel_uri, packages[0]])
 
 
-def find_conda_package(packages: list[LockedPackage]) -> tuple[LockedPackage, str]:
+def find_package(packages: list[LockedPackage], name: str) -> tuple[LockedPackage, str]:
     matches = []
     for package in packages:
         spec = MatchSpec(package.url)
-        if spec.name == "conda":
+        if spec.name == name:
             matches.append((package, str(spec.version)))
     if len(matches) != 1:
         raise RuntimeError(
-            "expected one conda archive, found "
+            f"expected one {name} archive, found "
             f"{[package.url for package, _version in matches]}"
         )
     return matches[0]
@@ -692,6 +693,7 @@ def prove_direct_update(
     missing_conda_archive: Path,
     gen1: GenerationVersions,
     gen2: GenerationVersions,
+    updater_version: str,
 ) -> None:
     verify_identity(scenario, gen1.conda, offline=True)
     verify_outer_identity(scenario, gen1.runtime, "direct")
@@ -776,7 +778,7 @@ def prove_direct_update(
         raise RuntimeError("startup recovery left the unapproved outer update pending")
 
     expected_gen2_sha256 = sha256(gen2_binary)
-    update = runtime_run(scenario, ["self", "update", "--json", "--yes"])
+    update = runtime_run(scenario, ["self", "update", "--all", "--json", "--yes"])
     update_result = json.loads(update.stdout)
     if not isinstance(update_result, dict):
         raise RuntimeError("successful update did not produce one JSON object")
@@ -788,9 +790,14 @@ def prove_direct_update(
         poll_sha256(scenario.stable, expected_gen2_sha256)
     verify_identity(scenario, gen2.conda)
     verify_outer_identity(scenario, gen2.runtime, "direct")
+    if (
+        installed_package_version(scenario.prefix, "conda-runtime-updater")
+        != updater_version
+    ):
+        raise RuntimeError("direct update did not install the locked updater version")
 
     updated = snapshot(scenario)
-    runtime_run(scenario, ["self", "update", "--yes"])
+    runtime_run(scenario, ["self", "update", "--all", "--yes"])
     require_unchanged(updated, scenario, "repeated update")
 
 
@@ -924,11 +931,13 @@ def full(args: argparse.Namespace) -> None:
     channel_uri = channel.resolve().as_uri()
     gen1_root = work / "gen1"
     gen2_root = work / "gen2"
-    _gen1_conda, gen1_conda_version = find_conda_package(
-        selected_packages(gen1_root / "conda.lock", args.platform)
+    _gen1_conda, gen1_conda_version = find_package(
+        selected_packages(gen1_root / "conda.lock", args.platform), "conda"
     )
-    gen2_conda, gen2_conda_version = find_conda_package(
-        selected_packages(gen2_root / "conda.lock", args.platform)
+    gen2_packages = selected_packages(gen2_root / "conda.lock", args.platform)
+    gen2_conda, gen2_conda_version = find_package(gen2_packages, "conda")
+    _gen2_updater, gen2_updater_version = find_package(
+        gen2_packages, "conda-runtime-updater"
     )
     gen2_conda_archive = channel / gen2_conda.subdir / gen2_conda.filename
     gen1_versions = GenerationVersions(
@@ -963,6 +972,17 @@ def full(args: argparse.Namespace) -> None:
         proof / "transport",
         channel_uri,
     )
+    # Match conda-forge's filename keys for the legacy conda client.
+    run(
+        [
+            sys.executable,
+            "-m",
+            "conda_index",
+            channel,
+            "--no-current-repodata",
+            "--write-shards",
+        ]
+    )
 
     direct = new_scenario(proof / "direct", gen1_binary, args.platform)
     prove_direct_update(
@@ -971,6 +991,7 @@ def full(args: argparse.Namespace) -> None:
         gen2_conda_archive,
         gen1_versions,
         gen2_versions,
+        gen2_updater_version,
     )
 
     external = new_scenario(proof / "external", gen1_binary, args.platform)
