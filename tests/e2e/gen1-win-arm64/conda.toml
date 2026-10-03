@@ -1,27 +1,24 @@
 [workspace]
-name = "conda-runtime"
+name = "conda-runtime-generation-1-arm64"
 channels = [
   "https://conda.anaconda.org/jezdez",
   "https://conda.anaconda.org/conda-forge",
 ]
-platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64", "win-arm64"]
+platforms = ["win-arm64"]
 channel-priority = "strict"
 
 [feature.ship.dependencies]
-python = "3.12.*"
-conda = "==26.9.1"
-conda-self = ">=0.3.0"
-conda-runtime-updater = "==0.1.0"
-
-[feature.ship.target.win-arm64.dependencies]
 python = "3.14.*"
+conda = "==26.9.0"
+conda-self = "==0.3.0"
+conda-runtime-updater = "==0.1.0"
 
 [environments]
 ship = { features = ["ship"], no-default-feature = true }
 
 [tool.conda-ship]
 runtime-name = "conda"
-runtime-version = "26.9.1"
+runtime-version = "26.9.0"
 delegate-executable = "conda"
 artifact-layout = "embedded"
 source-environment = "ship"

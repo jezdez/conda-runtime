@@ -156,6 +156,16 @@ def test_remote_metadata_must_match_local_package(
                 "target-triplet": "x86_64-any-win32",
             },
         ),
+        (
+            "win-arm64",
+            {
+                "platform": "win",
+                "arch": "arm64",
+                "machine": "arm64",
+                "operatingsystem": "win32",
+                "target-triplet": "arm64-any-win32",
+            },
+        ),
     ],
 )
 def test_native_identity_matches_anaconda_client(

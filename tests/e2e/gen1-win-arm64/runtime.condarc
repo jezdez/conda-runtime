@@ -1,0 +1,11 @@
+channels:
+  - https://conda.anaconda.org/jezdez
+  - https://conda.anaconda.org/conda-forge
+channel_priority: strict
+envs_dirs:
+  - ~/.conda/envs
+pkgs_dirs:
+  - ~/.conda/pkgs
+plugins:
+  self_permanent_packages:
+    - conda-runtime-updater

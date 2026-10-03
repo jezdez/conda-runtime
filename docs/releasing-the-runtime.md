@@ -26,7 +26,7 @@ that would be tagged:
 gh workflow run release-runtime.yml --ref main
 ```
 
-The manual run builds all five native executables, their platform-specific
+The manual run builds all six native executables, their platform-specific
 SBOMs, and update packages. It checks the complete distribution and runs the
 two-layer update proof on Linux, macOS, and Windows. It does not create a GitHub
 release or upload to Anaconda.org. It does not access release credentials or
@@ -40,12 +40,16 @@ Anaconda.org-stamped bytes. The native build jobs separately verify that each
 update package contains its finalized release executable byte for byte.
 
 On Linux and macOS, generation one is built with released conda-ship 0.8.0 and
-generation two is built with released conda-ship 0.9.2. Those jobs prove that
+generation two is built with released conda-ship 0.10.0. Those jobs prove that
 the published legacy-format readers can apply the new native format through the
-existing `conda-runtime` package. On Windows, both generations are built with
-conda-ship 0.9.2 and use `conda-runtime`. That job proves native updates after a
-fresh 0.9.0-format installation. It does not demonstrate an in-place update
-from a published 0.8.0-format Windows executable.
+existing `conda-runtime` package. On Windows, generation one uses conda-ship
+0.9.2 and generation two uses 0.10.0. Both use `conda-runtime`. Those jobs
+prove native updates after a fresh 0.9.0-format installation. They do not
+demonstrate an in-place update from a published 0.8.0-format Windows executable.
+
+Windows ARM64 uses Python 3.14 and the separate `tests/e2e/gen1-win-arm64`
+baseline with conda 26.9.0. The other platforms retain Python 3.12 and the
+conda 26.5.2 baseline in `tests/e2e/gen1`.
 
 Do not create the tag unless that candidate run passes. Tag the same commit the
 candidate used. The tag workflow repeats the build and proof before it can
@@ -54,10 +58,11 @@ publish anything.
 ## Create the release
 
 Create an unprefixed tag that exactly matches `runtime-version`, such as
-`26.7.2.post1`.
+`26.9.1`.
 
-The workflow uses the conda-ship action and release assets from exactly 0.9.2.
-It builds one executable for each of these five targets:
+The workflow uses the conda-ship action and current release assets from exactly
+0.10.0.
+It builds one executable for each of these six targets:
 
 | Conda subdirectory | Runner | Runtime target |
 | --- | --- | --- |
@@ -66,6 +71,7 @@ It builds one executable for each of these five targets:
 | `osx-64` | `macos-15-intel` | `x86_64-apple-darwin` |
 | `osx-arm64` | `macos-15` | `aarch64-apple-darwin` |
 | `win-64` | `windows-latest` | `x86_64-pc-windows-msvc` |
+| `win-arm64` | `windows-11-arm` | `aarch64-pc-windows-msvc` |
 
 Each job bootstraps its executable once, then packages those exact executable
 bytes with `cs package-update`. The package verifier checks the native package
@@ -73,7 +79,7 @@ identity, extracts the sole payload, and compares its size and SHA-256 digest
 with the finalized executable. Each macOS build must also pass strict native
 signature validation before packaging.
 
-All five platforms build from the canonical `runtime` project and publish
+All six platforms build from the canonical `runtime` project and publish
 native update packages under `conda-runtime`.
 
 Conda-ship also creates a CycloneDX 1.7 SBOM for every executable. Each SBOM
@@ -95,13 +101,13 @@ and the corresponding upgrade instruction.
 ## Windows alpha installations
 
 Existing Windows alpha installations must be replaced with a fresh
-`26.7.2.post1` installation. Move aside the existing executable and managed
+`26.9.1` installation. Move aside the existing executable and managed
 prefix, then run the new installer with a new prefix. Do not reuse the old
 direct-install metadata.
 
 ## Publication order
 
-The workflow passes the five executables, five SBOMs, two installer scripts,
+The workflow passes the six executables, six SBOMs, two installer scripts,
 and their attested `SHA256SUMS` to `gh release create`. GitHub CLI creates a
 draft, uploads every asset, and publishes the release before immutability takes
 effect. An upload failure removes the unfinished draft. A separate restartable
@@ -110,13 +116,14 @@ refuses to replace an existing release. Immutable releases must be enabled for
 this repository.
 
 Only after the GitHub release is public does the `anaconda` environment upload
-the five `conda-runtime` native packages to the configured owner and `main`
+the six `conda-runtime` native packages to the configured owner and `main`
 channel. Configure that environment with `ANACONDA_OWNER=jezdez` and an
 `ANACONDA_API_KEY` token that can write through the API and manage conda
 repositories.
 
 Package artifacts retain their `linux-64`, `linux-aarch64`, `osx-64`,
-`osx-arm64`, and `win-64` directories while they move between jobs. Their
+`osx-arm64`, `win-64`, and `win-arm64` directories while they move between jobs.
+Their
 basenames are identical, so the parent directories remain part of the
 validated publication identity.
 

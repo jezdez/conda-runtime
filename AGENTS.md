@@ -129,6 +129,8 @@
   `runtime/runtime.condarc`.
 - `tests/e2e/gen1/` keeps the committed conda 26.5.2 generation used to prove
   a real inner and outer update to the production generation.
+- `tests/e2e/gen1-win-arm64/` provides the Windows ARM64 baseline with conda
+  26.9.0 and Python 3.14.
 - Keep the production package set limited to Python, conda, conda-self, and
   conda-runtime-updater unless a reviewed runtime requirement adds another
   package.
