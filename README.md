@@ -56,6 +56,11 @@ has been downloaded. Runtime updates use the configured conda channel. Offline
 updates can use only update metadata and packages already present in the
 runtime update cache.
 
+The updater can notify interactive users when a newer runtime package is
+available. Notifications use the executable's advisory probe and can use
+cached metadata offline. See [update notifications](docs/update-notifications.md)
+for the required helper support and settings.
+
 > [!IMPORTANT]
 > Existing Windows alpha installations cannot update in place to the
 > conda-ship 0.9.0 runtime format. Move aside the existing executable and
