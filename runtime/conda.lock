@@ -66,7 +66,7 @@ environments:
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-rattler-solver-0.2.0-pyh5ded981_0.conda
         - conda:
-            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.1.0-pyh4616a5c_0.conda
+            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.2.0-pyh4616a5c_0.conda
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-self-0.3.0-pyhd8ed1ab_0.conda
         - conda:
@@ -307,7 +307,7 @@ environments:
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-rattler-solver-0.2.0-pyh5ded981_0.conda
         - conda:
-            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.1.0-pyh4616a5c_0.conda
+            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.2.0-pyh4616a5c_0.conda
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-self-0.3.0-pyhd8ed1ab_0.conda
         - conda:
@@ -546,7 +546,7 @@ environments:
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-rattler-solver-0.2.0-pyh5ded981_0.conda
         - conda:
-            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.1.0-pyh4616a5c_0.conda
+            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.2.0-pyh4616a5c_0.conda
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-self-0.3.0-pyhd8ed1ab_0.conda
         - conda:
@@ -771,7 +771,7 @@ environments:
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-rattler-solver-0.2.0-pyh5ded981_0.conda
         - conda:
-            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.1.0-pyh4616a5c_0.conda
+            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.2.0-pyh4616a5c_0.conda
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-self-0.3.0-pyhd8ed1ab_0.conda
         - conda:
@@ -996,7 +996,7 @@ environments:
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-rattler-solver-0.2.0-pyh5ded981_0.conda
         - conda:
-            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.1.0-pyh4616a5c_0.conda
+            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.2.0-pyh4616a5c_0.conda
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-self-0.3.0-pyhd8ed1ab_0.conda
         - conda:
@@ -1219,7 +1219,7 @@ environments:
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-rattler-solver-0.2.0-pyh5ded981_0.conda
         - conda:
-            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.1.0-pyh4616a5c_0.conda
+            https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.2.0-pyh4616a5c_0.conda
         - conda:
             https://conda.anaconda.org/conda-forge/noarch/conda-self-0.3.0-pyhd8ed1ab_0.conda
         - conda:
@@ -1696,16 +1696,17 @@ packages:
     conda:
       https://conda.anaconda.org/conda-forge/noarch/conda-rattler-solver-0.2.0-pyh5ded981_0.conda
   - build_number: 0
-    sha256: bb953ca537a8c2fff4f3ebeba7d847578e27c885729015a902f9f2cf3543938b
-    md5: 7d80cb5a59972818d30217df5b92e66f
+    sha256: cfed9a934fd6741ea8056b74dc66399f7c08622c0365d5f6fd7c47d788045ad9
+    md5: 3584e743e045d2933dd5183393394ee0
     license: BSD-3-Clause
-    size: 14572
+    size: 17116
     depends:
       - python >=3.10
       - conda >=26.1.1
+      - platformdirs >=3.10.0
       - python
     conda:
-      https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.1.0-pyh4616a5c_0.conda
+      https://conda.anaconda.org/jezdez/noarch/conda-runtime-updater-0.2.0-pyh4616a5c_0.conda
   - build_number: 0
     sha256: ba6e0a634471934a5d2e4ef264c0ff012c8be9c4d0e9dafb5ad7abdf57fa199a
     md5: f041b3104d0b01d187d72b1a71af79d3

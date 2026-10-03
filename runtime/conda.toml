@@ -11,7 +11,7 @@ channel-priority = "strict"
 python = "3.12.*"
 conda = "==26.9.1"
 conda-self = ">=0.3.0"
-conda-runtime-updater = "==0.1.0"
+conda-runtime-updater = "==0.2.0"
 
 [feature.ship.target.win-arm64.dependencies]
 python = "3.14.*"
