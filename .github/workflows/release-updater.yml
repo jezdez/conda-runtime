@@ -20,7 +20,7 @@ jobs:
     environment: anaconda
 
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -47,9 +47,9 @@ jobs:
               raise SystemExit(f"expected tag {expected}, received {tag}")
           PY
 
-      - uses: prefix-dev/setup-pixi@a09b6247153796b190642a2b53fac4241043cf6f # v0.10.0
+      - uses: prefix-dev/setup-pixi@ad1da6449d9e506fd127fd67ab2d054a769f6a94 # v0.11.2
         with:
-          pixi-version: v0.73.0
+          pixi-version: v0.82.1
           manifest-path: updater/pyproject.toml
           cache: true
 

@@ -9,7 +9,7 @@ channel-priority = "strict"
 
 [feature.ship.dependencies]
 python = "3.12.*"
-conda = "==26.9.1"
+conda = "==26.9.4"
 conda-self = ">=0.3.0"
 conda-runtime-updater = "==0.2.0"
 
@@ -21,7 +21,7 @@ ship = { features = ["ship"], no-default-feature = true }
 
 [tool.conda-ship]
 runtime-name = "conda"
-runtime-version = "26.9.1"
+runtime-version = "26.9.4"
 delegate-executable = "conda"
 artifact-layout = "embedded"
 source-environment = "ship"
