@@ -40,10 +40,10 @@ Anaconda.org-stamped bytes. The native build jobs separately verify that each
 update package contains its finalized release executable byte for byte.
 
 On Linux and macOS, generation one is built with released conda-ship 0.8.0 and
-generation two is built with released conda-ship 0.10.0. Those jobs prove that
+generation two is built with released conda-ship 0.11.1. Those jobs prove that
 the published legacy-format readers can apply the new native format through the
 existing `conda-runtime` package. On Windows, generation one uses conda-ship
-0.9.2 and generation two uses 0.10.0. Both use `conda-runtime`. Those jobs
+0.9.2 and generation two uses 0.11.1. Both use `conda-runtime`. Those jobs
 prove native updates after a fresh 0.9.0-format installation. They do not
 demonstrate an in-place update from a published 0.8.0-format Windows executable.
 
@@ -58,10 +58,10 @@ publish anything.
 ## Create the release
 
 Create an unprefixed tag that exactly matches `runtime-version`, such as
-`26.9.1`.
+`26.9.4`.
 
 The workflow uses the conda-ship action and current release assets from exactly
-0.10.0.
+0.11.1.
 It builds one executable for each of these six targets:
 
 | Conda subdirectory | Runner | Runtime target |
@@ -101,7 +101,7 @@ and the corresponding upgrade instruction.
 ## Windows alpha installations
 
 Existing Windows alpha installations must be replaced with a fresh
-`26.9.1` installation. Move aside the existing executable and managed
+`26.9.4` installation. Move aside the existing executable and managed
 prefix, then run the new installer with a new prefix. Do not reuse the old
 direct-install metadata.
 
