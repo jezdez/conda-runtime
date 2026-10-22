@@ -65,7 +65,7 @@ conda = ">=26.1.1"
 conda-index = ">=0.12.1"
 hatchling = ">=1.27"
 pytest = ">=8"
-rattler-build = "0.70.*"
+rattler-build = "0.77.*"
 
 [tool.pixi.target.unix.dependencies]
 ruff = ">=0.12"
